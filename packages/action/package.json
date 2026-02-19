@@ -1,0 +1,17 @@
+{
+  "name": "@shipguard/action",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc && node scripts/bundle.js"
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "shipguard": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
