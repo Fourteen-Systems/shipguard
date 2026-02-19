@@ -1,0 +1,26 @@
+name: "Shipguard"
+description: "Run Shipguard production readiness analysis in CI"
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  fail-on:
+    description: "Minimum severity to fail: low, med, high, critical"
+    default: "critical"
+  min-confidence:
+    description: "Minimum confidence to fail: low, med, high"
+    default: "high"
+  min-score:
+    description: "Minimum passing score (0-100)"
+    default: "70"
+  baseline:
+    description: "Path to baseline file for regression detection"
+    required: false
+  max-new-critical:
+    description: "Maximum new critical findings allowed"
+    default: "0"
+
+runs:
+  using: "node20"
+  main: "dist/index.js"
