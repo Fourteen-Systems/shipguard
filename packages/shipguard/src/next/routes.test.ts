@@ -1,0 +1,124 @@
+import { describe, it, expect } from "vitest";
+import { detectMutationSignals, classifyMutationRoutes } from "./routes.js";
+import type { NextRoute } from "./types.js";
+
+describe("detectMutationSignals", () => {
+  it("detects prisma create", () => {
+    const src = `await prisma.user.create({ data: { name } })`;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasDbWriteEvidence).toBe(true);
+    expect(signals.hasMutationEvidence).toBe(true);
+    expect(signals.mutationDetails).toContain("prisma.create");
+  });
+
+  it("detects prisma update", () => {
+    const src = `await db.post.update({ where: { id }, data: { title } })`;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasDbWriteEvidence).toBe(true);
+  });
+
+  it("detects prisma delete", () => {
+    const src = `await prisma.user.delete({ where: { id } })`;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasDbWriteEvidence).toBe(true);
+  });
+
+  it("detects prisma upsert", () => {
+    const src = `await prisma.user.upsert({ where: { email }, create: {}, update: {} })`;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasDbWriteEvidence).toBe(true);
+  });
+
+  it("detects stripe write operations", () => {
+    const src = `await stripe.customers.create({ email })`;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasStripeWriteEvidence).toBe(true);
+    expect(signals.hasMutationEvidence).toBe(true);
+  });
+
+  it("detects stripe checkout session", () => {
+    const src = `await stripe.checkout.sessions.create({ mode: "payment" })`;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasStripeWriteEvidence).toBe(true);
+  });
+
+  it("detects request body reading", () => {
+    const src = `const body = await request.json()`;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasMutationEvidence).toBe(true);
+    expect(signals.mutationDetails).toContain("reads request body");
+  });
+
+  it("detects formData reading", () => {
+    const src = `const data = await request.formData()`;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasMutationEvidence).toBe(true);
+  });
+
+  it("detects raw SQL writes", () => {
+    const src = `await prisma.$executeRaw\`DELETE FROM users\``;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasDbWriteEvidence).toBe(true);
+  });
+
+  it("returns no signals for GET-only route", () => {
+    const src = `
+      export async function GET() {
+        const users = await prisma.user.findMany();
+        return NextResponse.json(users);
+      }
+    `;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasMutationEvidence).toBe(false);
+    expect(signals.hasDbWriteEvidence).toBe(false);
+    expect(signals.hasStripeWriteEvidence).toBe(false);
+  });
+
+  it("detects multiple signals", () => {
+    const src = `
+      const body = await request.json();
+      await prisma.user.create({ data: body });
+      await stripe.customers.create({ email: body.email });
+    `;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasMutationEvidence).toBe(true);
+    expect(signals.hasDbWriteEvidence).toBe(true);
+    expect(signals.hasStripeWriteEvidence).toBe(true);
+    expect(signals.mutationDetails.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("classifyMutationRoutes", () => {
+  function makeRoute(overrides: Partial<NextRoute> = {}): NextRoute {
+    return {
+      kind: "route-handler",
+      file: "app/api/test/route.ts",
+      pathname: "/api/test",
+      isApi: true,
+      isPublic: true,
+      signals: {
+        hasMutationEvidence: false,
+        hasDbWriteEvidence: false,
+        hasStripeWriteEvidence: false,
+        mutationDetails: [],
+      },
+      ...overrides,
+    };
+  }
+
+  it("filters to mutation routes only", () => {
+    const routes = [
+      makeRoute({ file: "a.ts", signals: { hasMutationEvidence: true, hasDbWriteEvidence: false, hasStripeWriteEvidence: false, mutationDetails: [] } }),
+      makeRoute({ file: "b.ts" }),
+      makeRoute({ file: "c.ts", signals: { hasMutationEvidence: false, hasDbWriteEvidence: true, hasStripeWriteEvidence: false, mutationDetails: [] } }),
+    ];
+    const mutations = classifyMutationRoutes(routes);
+    expect(mutations).toHaveLength(2);
+    expect(mutations.map((r) => r.file)).toEqual(["a.ts", "c.ts"]);
+  });
+
+  it("returns empty for no mutation routes", () => {
+    const routes = [makeRoute(), makeRoute()];
+    expect(classifyMutationRoutes(routes)).toHaveLength(0);
+  });
+});
