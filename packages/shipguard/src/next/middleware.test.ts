@@ -193,4 +193,36 @@ describe("analyzeMiddleware", () => {
     expect(result.authLikely).toBe(true);
     expect(result.rateLimitLikely).toBe(true);
   });
+
+  it("finds middleware at monorepo workspace root (pnpm-workspace.yaml)", () => {
+    // Simulate monorepo: tmpDir/apps/web with middleware at tmpDir
+    const webDir = path.join(tmpDir, "apps", "web");
+    mkdirSync(webDir, { recursive: true });
+    writeFileSync(path.join(tmpDir, "pnpm-workspace.yaml"), "packages:\n  - apps/*");
+    writeFileSync(path.join(tmpDir, "package.json"), JSON.stringify({}));
+    writeFileSync(path.join(webDir, "package.json"), JSON.stringify({}));
+    writeFileSync(path.join(tmpDir, "middleware.ts"), `
+      import { auth } from "./auth";
+      export default auth((req) => {});
+    `);
+    const result = analyzeMiddleware(webDir);
+    expect(result.file).toBe("middleware.ts");
+    expect(result.authLikely).toBe(true);
+  });
+
+  it("prefers local middleware over workspace root middleware", () => {
+    const webDir = path.join(tmpDir, "apps", "web");
+    mkdirSync(webDir, { recursive: true });
+    writeFileSync(path.join(tmpDir, "pnpm-workspace.yaml"), "packages:\n  - apps/*");
+    writeFileSync(path.join(tmpDir, "package.json"), JSON.stringify({}));
+    writeFileSync(path.join(webDir, "package.json"), JSON.stringify({}));
+    writeFileSync(path.join(tmpDir, "middleware.ts"), "// root middleware");
+    writeFileSync(path.join(webDir, "middleware.ts"), `
+      import { clerkMiddleware } from "@clerk/nextjs/server";
+      export default clerkMiddleware();
+    `);
+    const result = analyzeMiddleware(webDir);
+    expect(result.file).toBe("middleware.ts");
+    expect(result.authLikely).toBe(true);
+  });
 });

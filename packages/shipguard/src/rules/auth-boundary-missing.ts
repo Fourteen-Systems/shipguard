@@ -7,9 +7,23 @@ import { isAllowlisted } from "../util/paths.js";
 
 export const RULE_ID = "AUTH-BOUNDARY-MISSING";
 
+import type { Severity } from "../next/types.js";
+
+const SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, med: 2, low: 1 };
+
+function severityFromConfidence(confidence: Confidence, maxSeverity: string): Severity {
+  const max = maxSeverity as Severity;
+  const maxRank = SEVERITY_RANK[max] ?? 4;
+  // high confidence → use max severity (typically critical)
+  // med confidence → cap at high
+  const computed: Severity = confidence === "high" ? max : "high";
+  const computedRank = SEVERITY_RANK[computed] ?? 3;
+  return computedRank > maxRank ? max : computed;
+}
+
 export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
   const findings: Finding[] = [];
-  const severity = config.rules[RULE_ID]?.severity ?? "critical";
+  const maxSeverity = config.rules[RULE_ID]?.severity ?? "critical";
 
   const authAllowlist = config.hints.auth.allowlistPaths;
 
@@ -20,7 +34,7 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
     if (result) {
       findings.push({
         ruleId: RULE_ID,
-        severity,
+        severity: severityFromConfidence(result.confidence, maxSeverity),
         confidence: result.confidence,
         message: `Route handler performs mutations without a recognized auth boundary`,
         file: route.file,
@@ -48,7 +62,7 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
     if (result) {
       findings.push({
         ruleId: RULE_ID,
-        severity,
+        severity: severityFromConfidence(result.confidence, maxSeverity),
         confidence: result.confidence,
         message: `Server action performs mutations without a recognized auth boundary`,
         file: action.file,
@@ -70,10 +84,10 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
     if (proc.procedureType === "protected") continue;
     if (isAllowlisted(proc.file, authAllowlist)) continue;
 
-    const confidence = proc.procedureType === "public" ? "high" : "med";
+    const confidence: Confidence = proc.procedureType === "public" ? "high" : "med";
     findings.push({
       ruleId: RULE_ID,
-      severity,
+      severity: severityFromConfidence(confidence, maxSeverity),
       confidence,
       message: `tRPC mutation "${proc.name}" uses ${proc.procedureType}Procedure without auth boundary`,
       file: proc.file,

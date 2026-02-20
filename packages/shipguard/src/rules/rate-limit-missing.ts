@@ -32,7 +32,7 @@ const WEBHOOK_PATH_PATTERNS = [
 
 export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
   const findings: Finding[] = [];
-  const severity = config.rules[RULE_ID]?.severity ?? "critical";
+  const maxSeverity = config.rules[RULE_ID]?.severity ?? "critical";
 
   for (const route of index.routes.all) {
     // Only check API routes
@@ -49,7 +49,7 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
     if (result) {
       findings.push({
         ruleId: RULE_ID,
-        severity,
+        severity: capSeverity(result.severity, maxSeverity),
         confidence: result.confidence,
         message: `Public API route has no recognized rate limiting`,
         file: route.file,
@@ -68,24 +68,29 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
     }
   }
 
-  // Check tRPC public mutation procedures
+  // Check tRPC mutation procedures (both public and protected)
   for (const proc of index.trpc.mutationProcedures) {
-    if (proc.procedureType === "protected") continue;
     if (isAllowlisted(proc.file, config.hints.rateLimit.allowlistPaths)) continue;
 
     // Check if the procedure's file has rate limit calls
     const src = readSource(index.rootDir, proc.file);
     if (src && hasRateLimitCall(src, config.hints.rateLimit.wrappers)) continue;
 
+    const isProtected = proc.procedureType === "protected";
     findings.push({
       ruleId: RULE_ID,
-      severity,
+      severity: capSeverity(isProtected ? "high" : "med", maxSeverity),
       confidence: "med",
-      message: `tRPC public mutation "${proc.name}" has no recognized rate limiting`,
+      message: `tRPC ${proc.procedureType} mutation "${proc.name}" has no recognized rate limiting`,
       file: proc.file,
       line: proc.line,
-      evidence: [`${proc.procedureType}Procedure.mutation() without rate limit wrapper`],
-      confidenceRationale: "Medium: tRPC rate limiting may be handled at middleware or procedure level (not detected)",
+      evidence: [
+        `${proc.procedureType}Procedure.mutation() without rate limit wrapper`,
+        ...(isProtected ? ["authenticated but still susceptible to abuse (cost, spam)"] : []),
+      ],
+      confidenceRationale: isProtected
+        ? "Medium: authenticated mutation still needs rate limiting to prevent abuse"
+        : "Medium: tRPC rate limiting may be handled at middleware or procedure level (not detected)",
       remediation: [
         "Add rate limiting middleware to the procedure chain",
         "If rate limiting is handled at the tRPC middleware level, add a waiver with reason",
@@ -98,7 +103,18 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
   return findings;
 }
 
+import type { Severity } from "../next/types.js";
+
+const SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, med: 2, low: 1 };
+
+function capSeverity(computed: Severity, max: string): Severity {
+  const maxRank = SEVERITY_RANK[max] ?? 4;
+  const computedRank = SEVERITY_RANK[computed] ?? 2;
+  return computedRank > maxRank ? (max as Severity) : computed;
+}
+
 interface CheckResult {
+  severity: Severity;
   confidence: Confidence;
   confidenceRationale: string;
   line?: number;
@@ -134,19 +150,25 @@ function checkRoute(
   const evidence: string[] = [];
   evidence.push(`No rate limit wrapper calls matched: ${config.hints.rateLimit.wrappers.join(", ")}`);
   evidence.push("No middleware-level rate limiting detected");
+  let severity: Severity;
   let confidence: Confidence;
   let confidenceRationale: string;
 
-  if (route.signals.hasMutationEvidence || route.signals.hasDbWriteEvidence) {
+  const isMutation = route.signals.hasMutationEvidence || route.signals.hasDbWriteEvidence;
+
+  if (isMutation) {
+    severity = "critical";
     confidence = "high";
     confidenceRationale = "High: mutation route without rate limiting (higher abuse risk)";
     evidence.push("route performs mutations (higher abuse risk)");
     evidence.push(...route.signals.mutationDetails);
   } else if (hasBodyParsing(src)) {
+    severity = "high";
     confidence = "high";
     confidenceRationale = "High: route reads request body without rate limiting";
     evidence.push("route reads request body");
   } else {
+    severity = "med";
     confidence = "med";
     confidenceRationale = "Medium: public API route without rate limiting (GET-only, lower risk)";
     evidence.push("public API route without rate limiting");
@@ -154,6 +176,7 @@ function checkRoute(
 
   // Downgrade if handler is exported via unknown HOF wrapper (may contain rate limiting)
   if (isWrappedByUnknownFunction(src)) {
+    if (severity === "critical") severity = "high";
     if (confidence === "high") {
       confidence = "med";
       confidenceRationale = "Medium: handler is wrapped by a higher-order function (may contain rate limiting)";
@@ -161,7 +184,7 @@ function checkRoute(
     evidence.push("handler exported via HOF wrapper (may contain rate limiting)");
   }
 
-  return { confidence, confidenceRationale, evidence };
+  return { severity, confidence, confidenceRationale, evidence };
 }
 
 function hasRateLimitCall(src: string, wrappers: string[]): boolean {

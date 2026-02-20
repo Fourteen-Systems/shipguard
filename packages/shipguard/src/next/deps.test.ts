@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { readDeps, defaultHintsFromDeps } from "./deps.js";
@@ -138,6 +138,50 @@ describe("readDeps", () => {
     expect(deps.hasPrisma).toBe(true);
     expect(deps.hasTrpc).toBe(true);
     expect(deps.hasUpstashRatelimit).toBe(true);
+  });
+
+  it("merges deps from monorepo workspace root (pnpm-workspace.yaml)", () => {
+    // Simulate monorepo: tmpDir/apps/web with pnpm-workspace.yaml at tmpDir
+    const webDir = path.join(tmpDir, "apps", "web");
+    mkdirSync(webDir, { recursive: true });
+    writeFileSync(path.join(tmpDir, "pnpm-workspace.yaml"), "packages:\n  - apps/*");
+    writeFileSync(path.join(tmpDir, "package.json"), JSON.stringify({
+      devDependencies: { "@prisma/client": "5", "next-auth": "5" },
+    }));
+    writeFileSync(path.join(webDir, "package.json"), JSON.stringify({
+      dependencies: { "next": "14" },
+    }));
+    const deps = readDeps(webDir);
+    expect(deps.hasPrisma).toBe(true);
+    expect(deps.hasNextAuth).toBe(true);
+  });
+
+  it("merges deps from monorepo workspace root (turbo.json)", () => {
+    const webDir = path.join(tmpDir, "apps", "web");
+    mkdirSync(webDir, { recursive: true });
+    writeFileSync(path.join(tmpDir, "turbo.json"), "{}");
+    writeFileSync(path.join(tmpDir, "package.json"), JSON.stringify({
+      dependencies: { "@trpc/server": "11" },
+    }));
+    writeFileSync(path.join(webDir, "package.json"), JSON.stringify({
+      dependencies: { "next": "14" },
+    }));
+    const deps = readDeps(webDir);
+    expect(deps.hasTrpc).toBe(true);
+  });
+
+  it("local deps take precedence over workspace root deps", () => {
+    const webDir = path.join(tmpDir, "apps", "web");
+    mkdirSync(webDir, { recursive: true });
+    writeFileSync(path.join(tmpDir, "pnpm-workspace.yaml"), "packages:\n  - apps/*");
+    writeFileSync(path.join(tmpDir, "package.json"), JSON.stringify({
+      dependencies: { "@clerk/nextjs": "4" },
+    }));
+    writeFileSync(path.join(webDir, "package.json"), JSON.stringify({
+      dependencies: { "@clerk/nextjs": "5" },
+    }));
+    const deps = readDeps(webDir);
+    expect(deps.hasClerk).toBe(true);
   });
 });
 

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import type { NextMiddlewareIndex } from "./types.js";
+import { findWorkspaceRoot } from "../util/monorepo.js";
 
 export function analyzeMiddleware(rootDir: string): NextMiddlewareIndex {
   // Next.js middleware can be at root or src/
@@ -14,6 +15,21 @@ export function analyzeMiddleware(rootDir: string): NextMiddlewareIndex {
       file = candidate;
       src = readFileSync(abs, "utf8");
       break;
+    }
+  }
+
+  // In monorepos, middleware may be at the workspace root
+  if (!file) {
+    const wsRoot = findWorkspaceRoot(rootDir);
+    if (wsRoot) {
+      for (const candidate of candidates) {
+        const abs = path.join(wsRoot, candidate);
+        if (existsSync(abs)) {
+          file = candidate;
+          src = readFileSync(abs, "utf8");
+          break;
+        }
+      }
     }
   }
 
