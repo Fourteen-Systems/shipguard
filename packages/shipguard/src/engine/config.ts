@@ -44,7 +44,7 @@ export const DEFAULT_CONFIG: ShipguardConfig = {
   },
   scoring: {
     start: 100,
-    penalties: { critical: 25, high: 10, med: 3, low: 1 },
+    penalties: { critical: 15, high: 6, med: 3, low: 1 },
   },
   hints: {
     auth: {
@@ -129,7 +129,7 @@ export function writeDefaultConfig(rootDir: string, opts: { force?: boolean }): 
     },
     scoring: {
       start: 100,
-      penalties: { critical: 25, high: 10, med: 3, low: 1 },
+      penalties: { critical: 15, high: 6, med: 3, low: 1 },
     },
     waiversFile: "shipguard.waivers.json",
   };

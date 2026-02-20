@@ -106,7 +106,7 @@ describe("DEFAULT_CONFIG", () => {
   it("has expected structure", () => {
     expect(DEFAULT_CONFIG.framework).toBe("next-app-router");
     expect(DEFAULT_CONFIG.scoring.start).toBe(100);
-    expect(DEFAULT_CONFIG.scoring.penalties.critical).toBe(25);
+    expect(DEFAULT_CONFIG.scoring.penalties.critical).toBe(15);
     expect(DEFAULT_CONFIG.rules["AUTH-BOUNDARY-MISSING"]).toBeDefined();
     expect(DEFAULT_CONFIG.rules["RATE-LIMIT-MISSING"]).toBeDefined();
     expect(DEFAULT_CONFIG.rules["TENANCY-SCOPE-MISSING"]).toBeDefined();

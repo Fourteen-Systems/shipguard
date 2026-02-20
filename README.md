@@ -250,6 +250,27 @@ Use `--min-confidence` in CI to control noise:
 shipguard ci --min-confidence high
 ```
 
+## Scoring
+
+Shipguard computes a 0-100 security score. Higher is better.
+
+Each finding deducts points based on severity **and** confidence:
+
+| | high confidence | med confidence | low confidence |
+|---|---|---|---|
+| **critical** | -15 | -3.75 | -1.5 |
+| **high** | -6 | -1.5 | -0.6 |
+| **med** | -3 | -0.75 | -0.3 |
+| **low** | -1 | -0.25 | -0.1 |
+
+A single rule can deduct at most 35 points (preventing one noisy rule from tanking the score).
+
+| Score | Status | Meaning |
+|-------|--------|---------|
+| 80-100 | PASS | Healthy — no critical gaps |
+| 50-79 | WARN | Issues to address |
+| 0-49 | FAIL | Critical gaps in protection |
+
 ## Compatibility
 
 Shipguard has no runtime dependency on Next.js, but it tracks evolving ecosystem patterns. Updates primarily add new detectors and improve confidence — not compatibility fixes.
