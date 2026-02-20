@@ -80,6 +80,41 @@ export async function cmdInit(opts: InitOptions): Promise<void> {
       }
     }
 
+    // Wrapper suggestions
+    const wrapperFindings = result.findings.filter((f) => f.ruleId === "WRAPPER-UNRECOGNIZED");
+    if (wrapperFindings.length > 0) {
+      console.log(pc.yellow("\n  Wrapper hints needed:"));
+      for (const f of wrapperFindings) {
+        const nameMatch = f.message.match(/Wrapper "(\w+)"/);
+        if (!nameMatch) continue;
+        const name = nameMatch[1];
+
+        // Determine suggestion based on evidence
+        const hasAuth = f.evidence.some((e) => e.startsWith("Auth call detected:"));
+        const hasRL = f.evidence.some((e) => e.startsWith("Rate-limit call detected:"));
+        const isUnresolved = f.message.includes("could not be resolved");
+        const isUnverified = f.message.includes("enforcement not proven");
+
+        if (isUnresolved) {
+          console.log(pc.dim(`    ${name} — wraps routes but could not be resolved`));
+          console.log(pc.dim(`      If auth:       add "${name}" to hints.auth.functions`));
+          console.log(pc.dim(`      If rate limit:  add "${name}" to hints.rateLimit.wrappers`));
+        } else if (isUnverified) {
+          if (hasAuth && !hasRL) {
+            console.log(pc.dim(`    ${name} — calls auth but enforcement not proven`));
+            console.log(pc.dim(`      Verify wrapper or add "${name}" to hints.auth.functions`));
+          } else if (hasRL && !hasAuth) {
+            console.log(pc.dim(`    ${name} — calls rate limiter but enforcement not proven`));
+            console.log(pc.dim(`      Verify wrapper or add "${name}" to hints.rateLimit.wrappers`));
+          } else {
+            console.log(pc.dim(`    ${name} — missing protections`));
+            console.log(pc.dim(`      If auth:       add "${name}" to hints.auth.functions`));
+            console.log(pc.dim(`      If rate limit:  add "${name}" to hints.rateLimit.wrappers`));
+          }
+        }
+      }
+    }
+
     // Next steps
     console.log(pc.dim("\n  Next:"));
     console.log(pc.dim("    shipguard baseline --write     Save current state as baseline"));

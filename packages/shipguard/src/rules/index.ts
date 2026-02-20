@@ -3,6 +3,7 @@ import type { Finding, ShipguardConfig } from "../engine/types.js";
 import * as authBoundary from "./auth-boundary-missing.js";
 import * as rateLimit from "./rate-limit-missing.js";
 import * as tenancyScope from "./tenancy-scope-missing.js";
+import * as wrapperUnrecognized from "./wrapper-unrecognized.js";
 
 export interface RuleMeta {
   id: string;
@@ -34,6 +35,13 @@ export const RULE_REGISTRY: RuleMeta[] = [
     defaultSeverity: "critical",
     docs: "Shipguard checks that Prisma queries include a tenant scoping field (orgId, tenantId, workspaceId) in their where clause. Only runs when Prisma is detected and the schema contains tenant fields. Configure field names in hints.tenancy.orgFieldNames.",
   },
+  {
+    id: "WRAPPER-UNRECOGNIZED",
+    name: "Wrapper Unrecognized",
+    description: "Flags HOF wrappers that could not be analyzed for auth or rate-limit enforcement.",
+    defaultSeverity: "high",
+    docs: "Shipguard resolves and analyzes HOF wrapper implementations to detect auth and rate-limit enforcement. When a wrapper cannot be resolved or its enforcement cannot be verified, this rule emits a single grouped finding. Add the wrapper name to hints.auth.functions or hints.rateLimit.wrappers to suppress.",
+  },
 ];
 
 export function runAllRules(index: NextIndex, config: ShipguardConfig): Finding[] {
@@ -48,6 +56,10 @@ export function runAllRules(index: NextIndex, config: ShipguardConfig): Finding[
   }
   if (config.rules["TENANCY-SCOPE-MISSING"]) {
     findings.push(...tenancyScope.run(index, config));
+  }
+  // WRAPPER-UNRECOGNIZED is always enabled unless explicitly configured out
+  if (config.rules["WRAPPER-UNRECOGNIZED"] !== undefined ? config.rules["WRAPPER-UNRECOGNIZED"] : true) {
+    findings.push(...wrapperUnrecognized.run(index, config));
   }
 
   return findings;

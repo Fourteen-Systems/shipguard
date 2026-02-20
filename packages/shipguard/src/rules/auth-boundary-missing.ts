@@ -2,12 +2,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { NextIndex, NextRoute, NextServerAction } from "../next/types.js";
 import type { Finding, ShipguardConfig } from "../engine/types.js";
-import type { Confidence } from "../next/types.js";
+import type { Confidence, Severity } from "../next/types.js";
 import { isAllowlisted } from "../util/paths.js";
 
 export const RULE_ID = "AUTH-BOUNDARY-MISSING";
-
-import type { Severity } from "../next/types.js";
 
 const SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, med: 2, low: 1 };
 
@@ -121,19 +119,19 @@ function checkRoute(
   index: NextIndex,
   config: ShipguardConfig,
 ): CheckResult | null {
+  // Use ProtectionSummary if available (computed during index building)
+  if (route.protection) {
+    if (route.protection.auth.satisfied) return null;
+
+    // If wrapper introspection deferred this to WRAPPER-UNRECOGNIZED, don't emit per-route finding
+    if (route.protection.auth.unverifiedWrappers.length > 0) return null;
+  }
+
   const src = readSource(index.rootDir, route.file);
   if (!src) return null;
 
-  // Check if auth boundary exists (call inside handler body)
-  if (hasAuthCall(src, config.hints.auth.functions)) return null;
-
-  // Check if handler is wrapped by a known auth function (HOF pattern)
-  if (isWrappedByAuthFunction(src, config.hints.auth.functions)) return null;
-
-  // Check if middleware covers this route
-  if (isProtectedByMiddleware(route, index)) return null;
-
   // Check for built-in auth patterns (webhook signatures, cron keys, etc.)
+  // These are always checked regardless of ProtectionSummary
   if (hasBuiltInAuthPattern(src)) return null;
 
   // No auth found — determine confidence
@@ -148,13 +146,6 @@ function checkRoute(
     confidence = "med";
     confidenceRationale = "Medium: mutation evidence present but possible custom auth wrapper detected (not in hints)";
     evidence.push("possible custom auth wrapper detected (not in hints)");
-  }
-
-  // Downgrade if handler is exported via HOF wrapper (unknown function)
-  if (isWrappedByUnknownFunction(src)) {
-    confidence = "med";
-    confidenceRationale = "Medium: handler is wrapped by a higher-order function (may contain auth)";
-    evidence.push("handler exported via HOF wrapper (may contain auth)");
   }
 
   // Find the line of the first mutation evidence for precise reporting
@@ -192,42 +183,10 @@ function checkServerAction(
 
 function hasAuthCall(src: string, authFunctions: string[]): boolean {
   for (const fn of authFunctions) {
-    // Match: fn(), await fn(), const x = fn(), const x = await fn()
     const pattern = new RegExp(`\\b${escapeRegex(fn)}\\s*\\(`, "m");
     if (pattern.test(src)) return true;
   }
   return false;
-}
-
-/**
- * Detect Higher-Order Function (HOF) auth wrapper pattern.
- * E.g.: export const GET = withWorkspace(async ({ workspace }) => { ... })
- *       export const POST = withSession(handler)
- *       export default withAuth(handler)
- */
-function isWrappedByAuthFunction(src: string, authFunctions: string[]): boolean {
-  for (const fn of authFunctions) {
-    const escaped = escapeRegex(fn);
-    // export const METHOD = fn(...) or export { fn as METHOD }
-    const hofPattern = new RegExp(
-      `export\\s+(?:const|let|var)\\s+(?:GET|POST|PUT|PATCH|DELETE)\\s*=\\s*${escaped}\\s*\\(`,
-      "m",
-    );
-    if (hofPattern.test(src)) return true;
-
-    // export default fn(...)
-    const defaultPattern = new RegExp(`export\\s+default\\s+${escaped}\\s*\\(`, "m");
-    if (defaultPattern.test(src)) return true;
-  }
-  return false;
-}
-
-/**
- * Detect if handler is exported via any HOF wrapper (unknown function name).
- * Used to downgrade confidence when we see the wrapping pattern but don't know the function.
- */
-function isWrappedByUnknownFunction(src: string): boolean {
-  return /export\s+(?:const|let|var)\s+(?:GET|POST|PUT|PATCH|DELETE)\s*=\s*[a-zA-Z_]\w*\s*\(/m.test(src);
 }
 
 /**
@@ -252,52 +211,17 @@ function hasBuiltInAuthPattern(src: string): boolean {
   if (/process\.env\.\w+SECRET\b/.test(src) && /headers\.get\s*\(/m.test(src)) return true;
 
   // Supabase auth boundary — call-based, not import-based.
-  // Client creation (createServerClient, etc.) is NOT an auth boundary.
-  // Only .auth.getUser() / .auth.getSession() counts.
   if (/\.auth\.getUser\s*\(/.test(src)) return true;
   if (/\.auth\.getSession\s*\(/.test(src)) return true;
 
   return false;
 }
 
-function isProtectedByMiddleware(route: NextRoute, index: NextIndex): boolean {
-  if (!index.middleware.authLikely) return false;
-
-  // If middleware has no matcher, it applies to all routes
-  if (index.middleware.matcherPatterns.length === 0) return true;
-
-  // Check if any matcher pattern covers this route
-  const pathname = route.pathname ?? "";
-  for (const pattern of index.middleware.matcherPatterns) {
-    if (pathnameMatchesMatcher(pathname, pattern)) return true;
-  }
-
-  return false;
-}
-
-function pathnameMatchesMatcher(pathname: string, matcher: string): boolean {
-  // Simple matcher check: does the matcher pattern cover this path?
-  // Next.js matchers use a regex-like syntax; for v1, do prefix matching
-  if (matcher.endsWith("/:path*")) {
-    const prefix = matcher.replace("/:path*", "");
-    return pathname.startsWith(prefix);
-  }
-  if (matcher.endsWith("(.*)")) {
-    const prefix = matcher.replace("(.*)", "");
-    return pathname.startsWith(prefix);
-  }
-  return pathname === matcher || pathname.startsWith(matcher + "/");
-}
-
 function hasPossibleCustomAuth(src: string): boolean {
-  // Heuristic: looks for patterns like `verifyToken(`, `checkAuth(`, `requireAuth(`
-  // that could be custom auth wrappers we don't know about.
-  // Allow intermediate words: verifyUnsubscribeToken, checkUserAccessLevel, etc.
   if (/\b(verify|check|require|validate|ensure|guard|protect)\w*(Token|Auth|Session|User|Access|Secret|Signature|Permission)\s*\(/i.test(src)) {
     return true;
   }
 
-  // Direct Authorization header reading is likely auth
   if (/headers?\S*\.get\s*\(\s*["']authorization["']\s*\)/i.test(src)) {
     return true;
   }

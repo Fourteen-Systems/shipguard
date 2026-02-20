@@ -1,8 +1,9 @@
 import path from "node:path";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import fg from "fast-glob";
 import type { TrpcIndex, TrpcProcedure, MutationSignals } from "./types.js";
 import { detectMutationSignals } from "./routes.js";
+import { resolveImportPath as sharedResolveImportPath } from "../util/resolve.js";
 
 /** Known tRPC handler markers in the proxy route file */
 const TRPC_PROXY_MARKERS = [
@@ -390,7 +391,7 @@ function resolveSubRouterImport(
 }
 
 // ---------------------------------------------------------------------------
-// Import resolution
+// Import resolution (delegates to shared resolver)
 // ---------------------------------------------------------------------------
 
 function resolveImportPath(
@@ -398,37 +399,7 @@ function resolveImportPath(
   importPath: string,
   rootDir: string,
 ): string | undefined {
-  let resolved: string;
-
-  if (importPath.startsWith("~/") || importPath.startsWith("@/")) {
-    // T3 convention: ~/ and @/ map to src/
-    const stripped = importPath.slice(2);
-    resolved = path.join("src", stripped);
-  } else if (importPath.startsWith(".")) {
-    // Relative import
-    const fromDir = path.dirname(fromFile);
-    resolved = path.join(fromDir, importPath);
-  } else {
-    // Bare specifier (npm package) — can't resolve
-    return undefined;
-  }
-
-  // Try extensions
-  const extensions = [".ts", ".tsx", ".js", ".jsx"];
-  const candidates = [
-    resolved,
-    ...extensions.map((ext) => resolved + ext),
-    ...extensions.map((ext) => path.join(resolved, "index" + ext)),
-    ...extensions.map((ext) => path.join(resolved, "_app" + ext)),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(path.join(rootDir, candidate))) {
-      return candidate;
-    }
-  }
-
-  return undefined;
+  return sharedResolveImportPath(fromFile, importPath, { rootDir });
 }
 
 // ---------------------------------------------------------------------------
