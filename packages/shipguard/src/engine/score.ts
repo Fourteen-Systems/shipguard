@@ -11,10 +11,22 @@ export function computeScore(
   config: ScoringConfig = DEFAULT_SCORING,
 ): number {
   let score = config.start;
+  const maxPerRule = config.maxPenaltyPerRule ?? config.start * 0.4;
 
+  // Group findings by ruleId
+  const byRule = new Map<string, Finding[]>();
   for (const f of findings) {
-    const penalty = config.penalties[f.severity] ?? 0;
-    score -= penalty;
+    const list = byRule.get(f.ruleId) ?? [];
+    list.push(f);
+    byRule.set(f.ruleId, list);
+  }
+
+  for (const [, ruleFindings] of byRule) {
+    let ruleDeduction = 0;
+    for (const f of ruleFindings) {
+      ruleDeduction += config.penalties[f.severity] ?? 0;
+    }
+    score -= Math.min(ruleDeduction, maxPerRule);
   }
 
   return Math.max(0, score);

@@ -45,25 +45,66 @@ describe("computeScore", () => {
     expect(computeScore([makeFinding({ severity: "low" })])).toBe(99);
   });
 
-  it("accumulates multiple findings", () => {
+  it("accumulates multiple findings from different rules", () => {
     const findings = [
-      makeFinding({ severity: "critical" }),
-      makeFinding({ severity: "critical" }),
-      makeFinding({ severity: "high" }),
+      makeFinding({ ruleId: "RULE-A", severity: "critical" }),
+      makeFinding({ ruleId: "RULE-B", severity: "critical" }),
+      makeFinding({ ruleId: "RULE-C", severity: "high" }),
     ];
     expect(computeScore(findings)).toBe(40);
   });
 
-  it("floors at 0", () => {
+  it("caps deduction per rule at 40% of start", () => {
+    // 10 critical findings from same rule = 250 raw penalty, capped at 40
     const findings = Array.from({ length: 10 }, () =>
       makeFinding({ severity: "critical" }),
     );
+    expect(computeScore(findings)).toBe(60);
+  });
+
+  it("floors at 0 with enough different rules", () => {
+    const findings = [
+      makeFinding({ ruleId: "RULE-A", severity: "critical" }),
+      makeFinding({ ruleId: "RULE-A", severity: "critical" }),
+      makeFinding({ ruleId: "RULE-B", severity: "critical" }),
+      makeFinding({ ruleId: "RULE-B", severity: "critical" }),
+      makeFinding({ ruleId: "RULE-C", severity: "critical" }),
+      makeFinding({ ruleId: "RULE-C", severity: "critical" }),
+    ];
+    // Each rule: 50 raw, capped at 40. 3 rules * 40 = 120 > 100 → floors at 0
     expect(computeScore(findings)).toBe(0);
   });
 
   it("uses custom scoring config", () => {
     const config = { start: 50, penalties: { critical: 10, high: 5, med: 2, low: 1 } };
     expect(computeScore([makeFinding({ severity: "critical" })], config)).toBe(40);
+  });
+
+  it("respects custom maxPenaltyPerRule", () => {
+    const config = {
+      start: 100,
+      penalties: { critical: 25, high: 10, med: 3, low: 1 },
+      maxPenaltyPerRule: 25,
+    };
+    // 5 critical from same rule = 125 raw, capped at 25
+    const findings = Array.from({ length: 5 }, () =>
+      makeFinding({ severity: "critical" }),
+    );
+    expect(computeScore(findings, config)).toBe(75);
+  });
+
+  it("applies cap independently per rule", () => {
+    // Two rules, each with findings that exceed the cap
+    const findings = [
+      makeFinding({ ruleId: "AUTH", severity: "critical" }),
+      makeFinding({ ruleId: "AUTH", severity: "critical" }),
+      makeFinding({ ruleId: "AUTH", severity: "critical" }),
+      makeFinding({ ruleId: "RATE", severity: "critical" }),
+      makeFinding({ ruleId: "RATE", severity: "critical" }),
+      makeFinding({ ruleId: "RATE", severity: "critical" }),
+    ];
+    // AUTH: 75 raw, capped at 40. RATE: 75 raw, capped at 40. Total: 80 → score 20
+    expect(computeScore(findings)).toBe(20);
   });
 });
 

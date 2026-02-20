@@ -4,9 +4,11 @@
 
 ### What Shipguard detects (v1)
 
-Flags route handlers and server actions that:
+Flags **route handlers** (`app/api/**/route.ts`) and **server actions** (files with `"use server"` or functions with inline `"use server"`) that:
 1. Perform mutations (Prisma writes, Stripe calls, request body parsing)
 2. Have no recognized auth boundary
+
+Server actions are discovered by scanning `.ts`/`.tsx` files under the app directory for `"use server"` directives (file-level or inline). Both named and const-exported async functions are detected.
 
 ### Recognized auth patterns
 
@@ -112,7 +114,7 @@ Flags API route handlers under `app/api/` and tRPC public mutation procedures th
 ### tRPC rate limiting
 
 - `publicProcedure.mutation()` without rate limiting → flagged at medium confidence
-- `protectedProcedure` mutations → skipped (auth reduces abuse risk)
+- `protectedProcedure` mutations without rate limiting → flagged at lower severity (authenticated users can still abuse cost/spam)
 - tRPC middleware-level rate limiting is not modeled — use waivers if handled there
 
 ### Known limitations
@@ -149,7 +151,7 @@ Flags Prisma calls on tenant-owned models that lack a tenant field in the where 
 
 - Row-Level Security (RLS) in Postgres is not detectable — use waivers
 - Repository pattern wrapping Prisma calls may not be detected
-- Only checks 15 lines of context after each Prisma call (may miss deeply nested where clauses)
+- Deeply nested where clauses far from the Prisma call site may not be detected
 - Reads (findMany, findFirst) flagged at medium confidence; writes at high confidence
 - Prisma middleware in a separate file (`prisma.ts`) is detected only if in standard locations
 

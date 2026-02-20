@@ -1,6 +1,7 @@
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import type { NextDepsIndex, NextHints } from "./types.js";
+import { findWorkspaceRoot } from "../util/monorepo.js";
 
 export function readDeps(rootDir: string): NextDepsIndex {
   const pkgPath = path.join(rootDir, "package.json");
@@ -11,6 +12,20 @@ export function readDeps(rootDir: string): NextDepsIndex {
     throw new Error(`Failed to parse ${pkgPath}: ${err instanceof Error ? err.message : String(err)}`);
   }
   const deps = { ...((pkg.dependencies as Record<string, string>) ?? {}), ...((pkg.devDependencies as Record<string, string>) ?? {}) };
+
+  // Merge workspace root deps for monorepo support
+  const wsRoot = findWorkspaceRoot(rootDir);
+  if (wsRoot) {
+    try {
+      const rootPkg = JSON.parse(readFileSync(path.join(wsRoot, "package.json"), "utf8"));
+      const rootDeps = { ...((rootPkg.dependencies as Record<string, string>) ?? {}), ...((rootPkg.devDependencies as Record<string, string>) ?? {}) };
+      for (const [k, v] of Object.entries(rootDeps)) {
+        if (!(k in deps)) deps[k] = v;
+      }
+    } catch {
+      // Ignore errors reading workspace root package.json
+    }
+  }
 
   return {
     hasNextAuth: Boolean(deps["next-auth"] || deps["@auth/core"] || deps["@auth/nextjs"]),

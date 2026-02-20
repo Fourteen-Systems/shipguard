@@ -68,6 +68,8 @@ export interface ScanResult {
 export interface ScoringConfig {
   start: number;
   penalties: Record<Severity, number>;
+  /** Max deduction any single rule can impose. Defaults to start * 0.4 */
+  maxPenaltyPerRule?: number;
 }
 
 export interface ShipguardConfig {
