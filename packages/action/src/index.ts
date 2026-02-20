@@ -4,6 +4,7 @@ import {
   runScan,
   loadBaseline,
   diffBaseline,
+  computeScore,
   confidenceLevel,
   severityLevel,
   scoreStatus,
@@ -36,10 +37,11 @@ async function run(): Promise<void> {
     const shouldComment = core.getInput("comment") !== "false";
     const shouldAnnotate = core.getInput("annotations") !== "false";
 
-    // Filter findings by confidence
+    // Filter findings by confidence and recalculate score
     const gatedFindings = result.findings.filter(
       (f) => confidenceLevel(f.confidence) >= confidenceLevel(minConfidence),
     );
+    const gatedScore = computeScore(gatedFindings);
 
     // Baseline diff
     let diff: BaselineDiff | undefined;
@@ -57,20 +59,20 @@ async function run(): Promise<void> {
 
     // PR comment
     if (shouldComment) {
-      await postComment(result, gatedFindings, diff);
+      await postComment(result, gatedFindings, gatedScore, diff);
     }
 
     // Job summary
-    await writeSummary(result, diff);
+    await writeSummary(gatedScore, gatedFindings, diff);
 
     // Set outputs
-    const status = scoreStatus(result.score);
-    core.setOutput("score", result.score);
-    core.setOutput("findings", result.findings.length);
+    const status = scoreStatus(gatedScore);
+    core.setOutput("score", gatedScore);
+    core.setOutput("findings", gatedFindings.length);
     core.setOutput("result", status);
 
     // Evaluate gates
-    const failures = evaluateGates(result, gatedFindings, diff, {
+    const failures = evaluateGates(gatedScore, gatedFindings, diff, {
       minScore,
       failOn,
       maxNewCritical,
@@ -106,6 +108,7 @@ function createAnnotations(findings: Finding[]): void {
 async function postComment(
   result: ScanResult,
   gatedFindings: Finding[],
+  gatedScore: number,
   diff?: BaselineDiff,
 ): Promise<void> {
   const token = process.env.GITHUB_TOKEN;
@@ -122,7 +125,7 @@ async function postComment(
 
   const octokit = github.getOctokit(token);
   const prNumber = context.payload.pull_request.number;
-  const body = buildCommentBody(result, gatedFindings, diff);
+  const body = buildCommentBody(result, gatedFindings, gatedScore, diff);
 
   // Find existing comment to update
   const { data: comments } = await octokit.rest.issues.listComments({
@@ -153,16 +156,17 @@ async function postComment(
 function buildCommentBody(
   result: ScanResult,
   gatedFindings: Finding[],
+  gatedScore: number,
   diff?: BaselineDiff,
 ): string {
   const lines: string[] = [COMMENT_MARKER];
-  const status = scoreStatus(result.score);
+  const status = scoreStatus(gatedScore);
   const icon = status === "PASS" ? "\u2705" : status === "WARN" ? "\u26A0\uFE0F" : "\uD83D\uDEA8";
 
   // Header
   lines.push(`## ${icon} Shipguard`);
   lines.push("");
-  lines.push(`**Score: ${result.score} ${status}**`);
+  lines.push(`**Score: ${gatedScore} ${status}**`);
 
   // Detected stack
   const detected = buildDetectedList(result);
@@ -224,12 +228,12 @@ function buildCommentBody(
 
 // --- Job Summary ---
 
-async function writeSummary(result: ScanResult, diff?: BaselineDiff): Promise<void> {
-  const status = scoreStatus(result.score);
+async function writeSummary(gatedScore: number, gatedFindings: Finding[], diff?: BaselineDiff): Promise<void> {
+  const status = scoreStatus(gatedScore);
 
   core.summary
     .addHeading("Shipguard Report")
-    .addRaw(`**Score: ${result.score} ${status}** | Findings: ${result.findings.length}`)
+    .addRaw(`**Score: ${gatedScore} ${status}** | Findings: ${gatedFindings.length}`)
     .addEOL();
 
   if (diff) {
@@ -251,15 +255,15 @@ interface GateConfig {
 }
 
 function evaluateGates(
-  result: ScanResult,
+  gatedScore: number,
   gatedFindings: Finding[],
   diff: BaselineDiff | undefined,
   config: GateConfig,
 ): string[] {
   const failures: string[] = [];
 
-  if (result.score < config.minScore) {
-    failures.push(`Score ${result.score} below minimum ${config.minScore}`);
+  if (gatedScore < config.minScore) {
+    failures.push(`Score ${gatedScore} below minimum ${config.minScore}`);
   }
 
   const failingSeverities = gatedFindings.filter(
