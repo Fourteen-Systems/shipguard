@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { NextIndex, NextRoute } from "../next/types.js";
 import type { Finding, ShipguardConfig } from "../engine/types.js";
-import type { Confidence } from "../next/types.js";
+import type { Confidence, Severity } from "../next/types.js";
 import { isAllowlisted } from "../util/paths.js";
 
 export const RULE_ID = "RATE-LIMIT-MISSING";
@@ -23,11 +23,24 @@ const EXEMPT_PATH_PATTERNS = [
 
 /**
  * Webhook path patterns — rate limiting is inappropriate for inbound webhooks.
- * The calling service controls the call rate, and rejecting would miss events.
+ * Matches any path containing "webhook" (e.g., /stripe-webhook, /webhooks/stripe).
  */
 const WEBHOOK_PATH_PATTERNS = [
-  /\/webhooks?\//,   // /webhook/ or /webhooks/
-  /\/webhooks?$/,    // /webhook or /webhooks (terminal)
+  /webhook/i,
+];
+
+/**
+ * Framework-managed routes where rate limiting is handled by the framework
+ * or is inappropriate (auth protocol flows, external callbacks, OG images).
+ */
+const FRAMEWORK_MANAGED_PATTERNS = [
+  /\/auth\/\[\.{3}[^\]]*\]/,  // NextAuth catch-all: auth/[...nextauth], auth/[...params]
+  /\/callback\//,              // Inbound callbacks from external services (OAuth, Stripe, Slack)
+  /\/callback$/,               // Terminal callback path
+  /\/oauth\//,                 // OAuth protocol endpoints (token, userinfo, authorize)
+  /\/saml\//,                  // SAML SSO endpoints
+  /\/og\//,                    // OG image generation routes (stateless, CDN-cached)
+  /\/og$/,                     // Terminal OG path
 ];
 
 export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
@@ -45,24 +58,37 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
     // Skip tRPC proxy routes — rate limiting is checked at the procedure level
     if (index.trpc.detected && route.file === index.trpc.proxyFile) continue;
 
+    // Skip framework-managed routes (NextAuth, OAuth, SAML, callbacks, OG images)
+    if (isFrameworkManaged(route.pathname)) continue;
+
     const result = checkRoute(route, index, config);
     if (result) {
+      const isAuthed = route.protection?.auth.satisfied ?? false;
+
       findings.push({
         ruleId: RULE_ID,
         severity: capSeverity(result.severity, maxSeverity),
         confidence: result.confidence,
-        message: `Public API route has no recognized rate limiting`,
+        message: isAuthed
+          ? `Authenticated API route has no recognized rate limiting`
+          : `Public API route has no recognized rate limiting`,
         file: route.file,
         line: result.line,
         snippet: result.snippet,
         evidence: result.evidence,
         confidenceRationale: result.confidenceRationale,
-        remediation: [
-          "Add rate limiting middleware or wrapper to this route",
-          "If using @upstash/ratelimit, wrap the handler with a rate limit check",
-          "If rate limiting is handled at the edge (Cloudflare, Vercel), add a waiver with reason",
-          "Add custom wrapper names to hints.rateLimit.wrappers in config",
-        ],
+        remediation: isAuthed
+          ? [
+              "Consider adding rate limiting as defense-in-depth",
+              "Authenticated routes are lower risk but can still be abused with stolen credentials",
+              "If rate limiting is at the edge (Cloudflare, Vercel WAF), add a waiver",
+            ]
+          : [
+              "Add rate limiting middleware or wrapper to this route",
+              "If using @upstash/ratelimit, wrap the handler with a rate limit check",
+              "If rate limiting is handled at the edge (Cloudflare, Vercel), add a waiver with reason",
+              "Add custom wrapper names to hints.rateLimit.wrappers in config",
+            ],
         tags: ["rate-limit", "server"],
       });
     }
@@ -102,8 +128,6 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
 
   return findings;
 }
-
-import type { Severity } from "../next/types.js";
 
 const SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, med: 2, low: 1 };
 
@@ -145,10 +169,10 @@ function checkRoute(
   // Routes with cron key auth are server-to-server (no rate limiting needed)
   if (hasCronKeyAuth(src)) return null;
 
-  // No rate limiting found
+  // Determine auth status for severity modulation
+  const isAuthed = route.protection?.auth.satisfied ?? false;
+
   const evidence: string[] = [];
-  evidence.push(`No rate limit wrapper calls matched: ${config.hints.rateLimit.wrappers.join(", ")}`);
-  evidence.push("No middleware-level rate limiting detected");
   let severity: Severity;
   let confidence: Confidence;
   let confidenceRationale: string;
@@ -156,21 +180,45 @@ function checkRoute(
   const isMutation = route.signals.hasMutationEvidence || route.signals.hasDbWriteEvidence;
 
   if (isMutation) {
-    severity = "critical";
-    confidence = "high";
-    confidenceRationale = "High: mutation route without rate limiting (higher abuse risk)";
-    evidence.push("route performs mutations (higher abuse risk)");
-    evidence.push(...route.signals.mutationDetails);
+    if (isAuthed) {
+      severity = "med";
+      confidence = "med";
+      confidenceRationale = "Medium: authenticated mutation route — abuse requires stolen credentials";
+      evidence.push("route performs mutations");
+      evidence.push(...route.signals.mutationDetails);
+      evidence.push("route has auth boundary — rate limiting is secondary defense");
+    } else {
+      severity = "critical";
+      confidence = "high";
+      confidenceRationale = "High: mutation route without rate limiting (higher abuse risk)";
+      evidence.push("route performs mutations (higher abuse risk)");
+      evidence.push(...route.signals.mutationDetails);
+    }
   } else if (hasBodyParsing(src)) {
-    severity = "high";
-    confidence = "high";
-    confidenceRationale = "High: route reads request body without rate limiting";
-    evidence.push("route reads request body");
+    if (isAuthed) {
+      severity = "low";
+      confidence = "low";
+      confidenceRationale = "Low: authenticated route with body parsing — abuse requires stolen credentials";
+      evidence.push("route reads request body");
+      evidence.push("route has auth boundary — rate limiting is secondary defense");
+    } else {
+      severity = "high";
+      confidence = "high";
+      confidenceRationale = "High: route reads request body without rate limiting";
+      evidence.push("route reads request body");
+    }
   } else {
-    severity = "med";
-    confidence = "med";
-    confidenceRationale = "Medium: public API route without rate limiting (GET-only, lower risk)";
-    evidence.push("public API route without rate limiting");
+    if (isAuthed) {
+      severity = "low";
+      confidence = "low";
+      confidenceRationale = "Low: authenticated GET-only route — rate limiting is good hygiene but low risk";
+      evidence.push("route has auth boundary — rate limiting is secondary defense");
+    } else {
+      severity = "med";
+      confidence = "med";
+      confidenceRationale = "Medium: public API route without rate limiting (GET-only, lower risk)";
+      evidence.push("public API route without rate limiting");
+    }
   }
 
   return { severity, confidence, confidenceRationale, evidence };
@@ -213,6 +261,11 @@ function hasCronKeyAuth(src: string): boolean {
 function isWebhookPath(pathname?: string): boolean {
   if (!pathname) return false;
   return WEBHOOK_PATH_PATTERNS.some((p) => p.test(pathname));
+}
+
+function isFrameworkManaged(pathname?: string): boolean {
+  if (!pathname) return false;
+  return FRAMEWORK_MANAGED_PATTERNS.some((p) => p.test(pathname));
 }
 
 function hasBodyParsing(src: string): boolean {
