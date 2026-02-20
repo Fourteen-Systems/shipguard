@@ -82,7 +82,7 @@ function findingToSarif(f: Finding): SarifResult {
       {
         physicalLocation: {
           artifactLocation: { uri: f.file },
-          ...(f.line ? { region: { startLine: f.line, startColumn: f.column } } : {}),
+          ...(f.line ? { region: { startLine: f.line, ...(f.column ? { startColumn: f.column } : {}) } } : {}),
         },
       },
     ],

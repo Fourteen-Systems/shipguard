@@ -120,6 +120,15 @@ export function writeDefaultConfig(rootDir: string, opts: { force?: boolean }): 
         orgFieldNames: ["orgId", "tenantId", "workspaceId", "organizationId", "teamId", "accountId"]
       },
     },
+    rules: {
+      "AUTH-BOUNDARY-MISSING": { severity: "critical" },
+      "RATE-LIMIT-MISSING": { severity: "critical" },
+      "TENANCY-SCOPE-MISSING": { severity: "critical" },
+    },
+    scoring: {
+      start: 100,
+      penalties: { critical: 25, high: 10, med: 3, low: 1 },
+    },
     waiversFile: "shipguard.waivers.json",
   };
 
