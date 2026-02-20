@@ -16,6 +16,16 @@ export function formatPretty(result: ScanResult, diff?: BaselineDiff): string {
   lines.push(`  ${pc.dim("Detected:")} ${detected.join(" · ")}`);
   lines.push(`  ${pc.dim("Score:")} ${scoreColor(String(score))} ${scoreColor(status)}`);
 
+  // Banner: no auth provider detected
+  const d = result.detected.deps;
+  const hasAnyAuth = d.hasNextAuth || d.hasClerk || d.hasSupabase || d.hasKinde ||
+    d.hasWorkOS || d.hasBetterAuth || d.hasLucia || d.hasAuth0 || d.hasIronSession ||
+    d.hasFirebaseAuth;
+  if (!hasAnyAuth && !result.detected.middleware) {
+    lines.push("");
+    lines.push(`  ${pc.yellow("⚠")} ${pc.yellow("No auth provider detected.")} Public mutation endpoints will be treated as high risk.`);
+  }
+
   if (diff) {
     const deltaStr = diff.scoreDelta >= 0 ? `+${diff.scoreDelta}` : `${diff.scoreDelta}`;
     lines.push(`  Delta from baseline: ${diff.scoreDelta >= 0 ? pc.green(deltaStr) : pc.red(deltaStr)}`);
