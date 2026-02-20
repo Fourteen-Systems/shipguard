@@ -66,13 +66,22 @@ Shipguard auto-detects your stack and adjusts detection accordingly:
 
 | Stack | What Shipguard understands |
 |-------|---------------------------|
-| **Auth.js / NextAuth** | `auth()`, `getServerSession()`, middleware auth |
+| **Auth.js / NextAuth** | `auth()`, `getServerSession()`, `withAuth()`, middleware auth |
 | **Clerk** | `auth()`, `currentUser()`, `clerkMiddleware()` |
 | **Supabase** | `.auth.getUser()`, `.auth.getSession()` (call-based, not import-based) |
+| **Kinde** | `getKindeServerSession()` |
+| **WorkOS / AuthKit** | `withAuth()`, `getUser()`, `authkitMiddleware()` |
+| **Better Auth** | `auth()` |
+| **Lucia** | `validateRequest()`, `validateSession()` |
+| **Auth0** | `getSession()`, `withApiAuthRequired()` |
+| **iron-session** | `getIronSession()` |
+| **Firebase Auth** | `verifyIdToken()`, `getTokens()`, `verifySessionCookie()` |
 | **tRPC** | `protectedProcedure` vs `publicProcedure`, `.mutation()` surfaces |
 | **Prisma** | `.create()`, `.update()`, `.delete()` as mutation evidence, tenant scoping |
 | **Drizzle** | Detected but gracefully degraded (tenancy rule skips) |
 | **Upstash** | `Ratelimit`, `ratelimit.limit()` as rate-limit evidence |
+| **Arcjet** | `fixedWindow()`, `slidingWindow()`, `tokenBucket()` |
+| **Unkey** | `withUnkey()`, `verifyKey()` |
 
 ### What It Skips
 
@@ -177,7 +186,7 @@ For advanced use cases, create `shipguard.config.json`:
 
 Hints tell Shipguard about your codebase-specific patterns. If you use a custom auth wrapper like `requireAuth()` or a rate limiting function like `withRateLimit()`, add it to hints so Shipguard recognizes it and doesn't flag protected routes.
 
-Most built-in patterns (Auth.js, Clerk, Supabase, tRPC, Upstash) are detected automatically — hints are for your custom wrappers.
+Most built-in patterns (Auth.js, Clerk, Supabase, Kinde, WorkOS, Lucia, Auth0, Firebase, tRPC, Upstash, Arcjet, Unkey) are detected automatically — hints are for your custom wrappers.
 
 ## Confidence Levels
 

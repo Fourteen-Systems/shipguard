@@ -1,7 +1,7 @@
 {
   "name": "shipguard",
   "version": "0.1.0",
-  "description": "Code-level operational maturity analysis for Next.js projects",
+  "description": "CI guardrail that blocks unprotected mutation routes in Next.js SaaS",
   "type": "module",
   "bin": {
     "shipguard": "./bin/shipguard.mjs"
