@@ -31,6 +31,7 @@
     "linter",
     "ci"
   ],
+  "author": "Fourteen Systems",
   "license": "MIT",
   "repository": {
     "type": "git",

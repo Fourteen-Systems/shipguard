@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
-      - uses: fourteensystems/shipguard-action@v1
+      - uses: Fourteen-Systems/shipguard-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -63,7 +63,7 @@ The action posts a PR comment with score, findings, and detected stack. Adds inl
 For monorepos (Turborepo, pnpm workspaces), point to the Next.js app directory:
 
 ```yaml
-- uses: fourteensystems/shipguard-action@v1
+- uses: Fourteen-Systems/shipguard-action@v1
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   with:
@@ -76,7 +76,7 @@ Shipguard automatically reads dependencies from both the app and workspace root,
 
 Most projects need no configuration. Shipguard auto-detects your stack, resolves wrapper implementations, and verifies auth/rate-limit enforcement automatically. Run `npx @fourteensystems/shipguard init` locally to generate a config if you need custom hints for edge cases.
 
-See [shipguard](https://github.com/fourteensystems/shipguard) for full documentation.
+See [shipguard](https://github.com/Fourteen-Systems/shipguard) for full documentation.
 
 ## License
 
