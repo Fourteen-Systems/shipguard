@@ -15,7 +15,7 @@ npx @fourteensystems/shipguard init
 Detects your framework and dependencies, generates a config, and runs your first scan.
 
 ```
-  Shipguard 0.2.2
+  Shipguard 0.2.3
   Detected: next-app-router · next-auth · prisma · upstash-ratelimit · middleware.ts
   Score: 85 PASS
 ```
