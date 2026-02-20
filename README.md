@@ -59,7 +59,7 @@ shipguard explain AUTH-BOUNDARY-MISSING
 | Rule | Severity | What it catches |
 |------|----------|----------------|
 | AUTH-BOUNDARY-MISSING | critical | Mutation endpoints without auth checks |
-| RATE-LIMIT-MISSING | critical | Public API routes without rate limiting |
+| RATE-LIMIT-MISSING | critical | API routes without rate limiting (auth-aware severity) |
 | TENANCY-SCOPE-MISSING | critical | Prisma queries without tenant scoping |
 | WRAPPER-UNRECOGNIZED | high | HOF wrappers that couldn't be verified for auth/rate-limit enforcement |
 
@@ -108,11 +108,13 @@ Shipguard auto-detects your stack and adjusts detection accordingly:
 
 ### What It Skips
 
-- Webhook routes (`/api/webhooks/*`) — exempt from rate-limit
+- Webhook routes (any path containing `webhook`) — exempt from rate-limit
 - Cron routes (`/api/cron/*`) — exempt from rate-limit
+- Framework-managed routes (NextAuth catch-all, OAuth/SAML endpoints, callbacks, OG images) — exempt from rate-limit
 - `GET`-only route handlers — not mutation surfaces
 - Routes covered by `middleware.ts` auth — no double-flagging
 - Routes wrapped by verified HOF wrappers (`withWorkspace(handler)` where auth+RL enforcement is proven)
+- Authenticated routes get lower rate-limit severity (abuse requires stolen credentials)
 
 See [PATTERNS.md](PATTERNS.md) for full detection logic.
 

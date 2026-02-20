@@ -96,7 +96,7 @@ Server actions are discovered by scanning `.ts`/`.tsx` files under the app direc
 
 ### What Shipguard detects (v1)
 
-Flags API route handlers under `app/api/` and tRPC public mutation procedures that have no recognized rate limiting.
+Flags API route handlers under `app/api/` and tRPC public mutation procedures that have no recognized rate limiting. Severity is modulated by auth status — authenticated routes get lower severity since abuse requires stolen credentials.
 
 ### Recognized rate limit patterns
 
@@ -119,13 +119,37 @@ Flags API route handlers under `app/api/` and tRPC public mutation procedures th
 - Arcjet: `aj.protect`, `fixedWindow`, `slidingWindow`, `tokenBucket`
 - Unkey: `withUnkey`, `verifyKey`
 
+### Auth-aware severity
+
+Severity is modulated by whether the route has a recognized auth boundary. Authenticated routes are lower risk because abuse requires stolen credentials.
+
+| Auth status | Route type | Severity | Confidence |
+|-------------|-----------|----------|------------|
+| No auth | Mutation | **critical** | high |
+| No auth | Body parsing | **high** | high |
+| No auth | GET-only | **med** | med |
+| Has auth | Mutation | **med** | med |
+| Has auth | Body parsing | **low** | low |
+| Has auth | GET-only | **low** | low |
+
 ### Automatic exemptions
 
+**Infrastructure routes:**
 - Health/readiness: `/health`, `/ping`, `/ready`, `/live`
 - Internal: `/_next/`
 - Server-to-server: `/cron/`, `/tasks/`
-- Webhooks: `/webhook`, `/webhooks` (path-based) or Stripe/HMAC signature verification (code-based)
+
+**Webhook routes:**
+- Any path containing `webhook` (e.g., `/webhook`, `/webhooks/stripe`, `/billing/stripe-webhook`)
+- Stripe/HMAC/QStash signature verification (code-based)
 - Cron routes with `process.env.CRON_API_KEY` / `verifyVercelSignature()`
+
+**Framework-managed routes:**
+- NextAuth catch-all: `/api/auth/[...nextauth]`, `/api/auth/[...params]`
+- OAuth protocol endpoints: `/api/oauth/*` (token, userinfo, authorize)
+- SAML SSO endpoints: `/api/*/saml/*`
+- External callbacks: `/api/callback/*`, `/api/*/callback/*` (OAuth, Stripe, Slack)
+- OG image generation: `/api/og/*` (stateless, typically CDN-cached)
 - tRPC proxy routes (rate limiting checked at procedure level instead)
 
 ### tRPC rate limiting
