@@ -1,6 +1,7 @@
 import pc from "picocolors";
 import { findConfigFile, writeDefaultConfig } from "../../engine/config.js";
 import { runScan } from "../../engine/run.js";
+import { scoreStatus } from "../../engine/score.js";
 import { readDeps, defaultHintsFromDeps } from "../../next/deps.js";
 import { detectNextAppRouter } from "../../next/detect.js";
 import { existsSync } from "node:fs";
@@ -24,12 +25,25 @@ export async function cmdInit(opts: InitOptions): Promise<void> {
   }
   console.log(pc.green("  Detected Next.js App Router"));
 
-  // 2. Detect dependencies and print hints
+  // 2. Detect dependencies and print what we found
   const deps = readDeps(rootDir);
-  if (deps.hasNextAuth) console.log(pc.green("  Detected next-auth → added auth hints"));
-  if (deps.hasClerk) console.log(pc.green("  Detected @clerk/nextjs → added auth hints"));
-  if (deps.hasUpstashRatelimit) console.log(pc.green("  Detected @upstash/ratelimit → added rate limit hints"));
-  if (deps.hasPrisma) console.log(pc.green("  Detected Prisma → added tenancy hints"));
+  const detected: string[] = ["next-app-router"];
+  if (deps.hasNextAuth) detected.push("next-auth");
+  if (deps.hasClerk) detected.push("clerk");
+  if (deps.hasSupabase) detected.push("supabase");
+  if (deps.hasPrisma) detected.push("prisma");
+  if (deps.hasDrizzle) detected.push("drizzle");
+  if (deps.hasTrpc) detected.push("trpc");
+  if (deps.hasUpstashRatelimit) detected.push("upstash-ratelimit");
+
+  // Check for middleware
+  const hasMiddleware = existsSync(path.join(rootDir, "middleware.ts"))
+    || existsSync(path.join(rootDir, "middleware.js"))
+    || existsSync(path.join(rootDir, "src/middleware.ts"))
+    || existsSync(path.join(rootDir, "src/middleware.js"));
+  if (hasMiddleware) detected.push("middleware.ts");
+
+  console.log(pc.green(`  Detected: ${detected.join(" · ")}`));
 
   // 3. Write config (idempotent)
   const existingConfig = findConfigFile(rootDir);
@@ -47,8 +61,9 @@ export async function cmdInit(opts: InitOptions): Promise<void> {
   try {
     const result = await runScan({ rootDir });
 
-    const scoreColor = result.score >= 80 ? pc.green : result.score >= 50 ? pc.yellow : pc.red;
-    console.log(`\n  Shipguard Score: ${scoreColor(`${result.score}/100`)}`);
+    const status = scoreStatus(result.score);
+    const scoreColor = status === "PASS" ? pc.green : status === "WARN" ? pc.yellow : pc.red;
+    console.log(`\n  Shipguard Score: ${scoreColor(String(result.score))} ${scoreColor(status)}`);
 
     if (result.findings.length === 0) {
       console.log(pc.green("  No findings — looking good!"));

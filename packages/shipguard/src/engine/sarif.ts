@@ -1,4 +1,5 @@
 import type { ScanResult, Finding } from "./types.js";
+import { SHIPGUARD_VERSION } from "./version.js";
 
 interface SarifLog {
   $schema: string;
@@ -60,7 +61,7 @@ export function formatSarif(result: ScanResult): string {
         tool: {
           driver: {
             name: "Shipguard",
-            version: "0.1.0",
+            version: SHIPGUARD_VERSION,
             rules: [...ruleMap.values()],
           },
         },

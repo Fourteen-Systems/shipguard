@@ -22,7 +22,7 @@ export function analyzeMiddleware(rootDir: string): NextMiddlewareIndex {
   }
 
   // Best-effort heuristics (keep conservative)
-  const authLikely = /getToken\s*\(|auth\s*\(|clerkMiddleware\s*\(|withAuth\s*\(|getServerSession\s*\(/.test(src);
+  const authLikely = /getToken\s*\(|auth\s*\(|clerkMiddleware\s*\(|authMiddleware\s*\(|withAuth\s*\(|getServerSession\s*\(|\.auth\.getUser\s*\(|createMiddlewareClient\s*\(|authkitMiddleware\s*\(|kindeMiddleware\s*\(|withMiddlewareAuthRequired\s*\(|validateRequest\s*\(|getIronSession\s*\(/.test(src);
   const rateLimitLikely = /ratelimit|rateLimit|upstash/i.test(src);
 
   // Extract matcher config if present

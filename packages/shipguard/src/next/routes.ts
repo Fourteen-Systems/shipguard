@@ -32,8 +32,9 @@ const ADMIN_PATH_SEGMENTS = /\/(admin|billing|invite|role|plan|sync|reindex|dele
 export async function findRouteHandlers(
   rootDir: string,
   excludeGlobs: string[],
+  appDir: string = "app",
 ): Promise<NextRoute[]> {
-  const files = fg.globSync("app/**/route.{ts,js,tsx,jsx}", {
+  const files = fg.globSync(`${appDir}/**/route.{ts,js,tsx,jsx}`, {
     cwd: rootDir,
     ignore: ["**/node_modules/**", ...excludeGlobs],
   });
@@ -42,12 +43,17 @@ export async function findRouteHandlers(
 
   for (const file of files) {
     const abs = path.join(rootDir, file);
-    const src = readFileSync(abs, "utf8");
+    let src: string;
+    try {
+      src = readFileSync(abs, "utf8");
+    } catch {
+      continue; // Skip unreadable files
+    }
 
     const signals = detectMutationSignals(src);
     const method = detectExportedMethods(src);
-    const pathname = fileToPathname(file);
-    const isApi = file.startsWith("app/api/");
+    const pathname = fileToPathname(file, appDir);
+    const isApi = pathname.startsWith("/api/") || pathname === "/api";
 
     routes.push({
       kind: "route-handler",
@@ -72,7 +78,7 @@ export function classifyMutationRoutes(all: NextRoute[]): NextRoute[] {
   );
 }
 
-function detectMutationSignals(src: string): MutationSignals {
+export function detectMutationSignals(src: string): MutationSignals {
   const details: string[] = [];
 
   // Prisma writes
@@ -128,10 +134,12 @@ function detectExportedMethods(src: string): string | undefined {
   return methods.length > 0 ? methods.join(",") : undefined;
 }
 
-function fileToPathname(file: string): string {
+function fileToPathname(file: string, appDir: string = "app"): string {
   // app/api/users/[id]/route.ts → /api/users/[id]
+  // src/app/api/users/[id]/route.ts → /api/users/[id]
+  const prefix = appDir.endsWith("/") ? appDir : appDir + "/";
   return "/" + file
-    .replace(/^app\//, "")
+    .replace(new RegExp(`^${prefix.replace(/[/]/g, "\\/")}`), "")
     .replace(/\/route\.\w+$/, "")
     .replace(/\\/g, "/");
 }

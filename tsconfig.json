@@ -14,5 +14,6 @@
     "sourceMap": true,
     "outDir": "dist",
     "rootDir": "src"
-  }
+  },
+  "exclude": ["node_modules", "dist", "fixtures", "gauntlet"]
 }

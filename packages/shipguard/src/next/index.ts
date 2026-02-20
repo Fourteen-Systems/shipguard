@@ -6,6 +6,7 @@ import { readDeps, defaultHintsFromDeps } from "./deps.js";
 import { analyzeMiddleware } from "./middleware.js";
 import { findRouteHandlers, classifyMutationRoutes } from "./routes.js";
 import { findServerActions, classifyMutationActions } from "./server-actions.js";
+import { buildTrpcIndex } from "./trpc.js";
 
 export type { NextIndex } from "./types.js";
 export { detectNextAppRouter } from "./detect.js";
@@ -19,6 +20,7 @@ export async function buildNextIndex(
     throw new Error(`Shipguard v1 supports Next.js App Router only: ${det.reason ?? "unknown reason"}`);
   }
 
+  const { appDir } = det;
   const deps = readDeps(rootDir);
 
   // Check for middleware in standard locations
@@ -30,11 +32,13 @@ export async function buildNextIndex(
   const hints = defaultHintsFromDeps(deps, hasMiddlewareTs);
   const middleware = analyzeMiddleware(rootDir);
 
-  const allRoutes = await findRouteHandlers(rootDir, exclude);
+  const allRoutes = await findRouteHandlers(rootDir, exclude, appDir);
   const mutationRoutes = classifyMutationRoutes(allRoutes);
 
-  const allActions = await findServerActions(rootDir, exclude);
+  const allActions = await findServerActions(rootDir, exclude, appDir);
   const mutationActions = classifyMutationActions(allActions);
+
+  const trpc = await buildTrpcIndex(rootDir, appDir, exclude);
 
   return {
     version: 1,
@@ -45,5 +49,6 @@ export async function buildNextIndex(
     middleware,
     routes: { all: allRoutes, mutationRoutes },
     serverActions: { all: allActions, mutationActions: mutationActions },
+    trpc,
   };
 }

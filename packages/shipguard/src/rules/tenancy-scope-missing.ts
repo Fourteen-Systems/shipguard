@@ -50,6 +50,7 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
         ruleId: RULE_ID,
         severity,
         confidence: call.confidence,
+        confidenceRationale: call.confidenceRationale,
         message: `Prisma ${call.method}() call may lack tenant scoping`,
         file,
         line: call.line,
@@ -72,6 +73,7 @@ interface UnscopedCall {
   method: string;
   line: number;
   confidence: Confidence;
+  confidenceRationale: string;
   snippet: string;
   evidence: string[];
 }
@@ -105,14 +107,15 @@ function findUnscopedPrismaCalls(
       // Determine confidence
       const evidence: string[] = [`prisma.*.${method}() without ${orgFields.join("/")} in where clause`];
       let confidence: Confidence;
+      let confidenceRationale: string;
 
       if (method === "delete" || method === "deleteMany" || method === "update" || method === "updateMany") {
-        // Mutations without scoping = high confidence
         confidence = "high";
+        confidenceRationale = `High: ${method}() is a write operation without tenant scoping field in where clause`;
         evidence.push("write operation without tenant scoping is high risk");
       } else {
-        // Reads without scoping = medium confidence (could be intentional for admin views)
         confidence = "med";
+        confidenceRationale = `Medium: ${method}() is a read without tenant scoping (could be intentional for admin views)`;
       }
 
       const snippet = line.trim().slice(0, 120);
@@ -121,6 +124,7 @@ function findUnscopedPrismaCalls(
         method,
         line: i + 1,
         confidence,
+        confidenceRationale,
         snippet,
         evidence,
       });
