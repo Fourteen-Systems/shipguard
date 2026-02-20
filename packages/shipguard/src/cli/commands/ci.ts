@@ -4,7 +4,7 @@ import { runScan } from "../../engine/run.js";
 import { formatPretty, formatJson } from "../../engine/report.js";
 import { formatSarif } from "../../engine/sarif.js";
 import { loadBaseline, diffBaseline } from "../../engine/baseline.js";
-import type { Confidence, Severity } from "../../next/types.js";
+import { confidenceLevel, severityLevel, parseConfidence, parseSeverity, parseIntOrThrow } from "../../engine/score.js";
 
 interface CiOptions {
   failOn: string;
@@ -18,101 +18,100 @@ interface CiOptions {
 }
 
 export async function cmdCi(opts: CiOptions): Promise<void> {
-  const rootDir = process.cwd();
-  const result = await runScan({ rootDir });
+  try {
+    const rootDir = process.cwd();
+    const result = await runScan({ rootDir });
 
-  const minConf = (opts.minConfidence ?? "high") as Confidence;
-  const failOnSeverity = (opts.failOn ?? "critical") as Severity;
-  const minScore = parseInt(opts.minScore ?? "70", 10);
-  const maxNewCritical = parseInt(opts.maxNewCritical ?? "0", 10);
-  const maxNewHigh = opts.maxNewHigh !== undefined ? parseInt(opts.maxNewHigh, 10) : undefined;
+    const minConf = parseConfidence(opts.minConfidence ?? "high");
+    const failOnSeverity = parseSeverity(opts.failOn ?? "critical");
+    const minScore = parseIntOrThrow(opts.minScore ?? "70", "min-score");
+    const maxNewCritical = parseIntOrThrow(opts.maxNewCritical ?? "0", "max-new-critical");
+    const maxNewHigh = opts.maxNewHigh !== undefined ? parseIntOrThrow(opts.maxNewHigh, "max-new-high") : undefined;
 
-  // Filter findings by confidence for failure evaluation
-  const gatedFindings = result.findings.filter(
-    (f) => confidenceLevel(f.confidence) >= confidenceLevel(minConf),
-  );
+    // Filter findings by confidence for failure evaluation
+    const gatedFindings = result.findings.filter(
+      (f) => confidenceLevel(f.confidence) >= confidenceLevel(minConf),
+    );
 
-  // Check baseline
-  let diff;
-  if (opts.baseline) {
-    const baseline = loadBaseline(opts.baseline);
-    if (baseline) {
-      diff = diffBaseline(baseline, result);
+    // Check baseline
+    let diff;
+    if (opts.baseline) {
+      const baseline = loadBaseline(opts.baseline);
+      if (baseline) {
+        diff = diffBaseline(baseline, result);
+      }
     }
-  }
 
-  // Output report
-  let output: string;
-  switch (opts.format) {
-    case "json":
-      output = formatJson(result);
-      break;
-    case "sarif":
-      output = formatSarif(result);
-      break;
-    default:
-      output = formatPretty(result, diff);
-  }
-
-  if (opts.output) {
-    writeFileSync(opts.output, output);
-  }
-  console.log(output);
-
-  // Evaluate gates
-  const failures: string[] = [];
-
-  // Score gate
-  if (result.score < minScore) {
-    failures.push(`Score ${result.score} is below minimum ${minScore}`);
-  }
-
-  // Severity gate: any findings at or above fail-on severity with sufficient confidence
-  const failingSeverities = gatedFindings.filter(
-    (f) => severityLevel(f.severity) >= severityLevel(failOnSeverity),
-  );
-  if (failingSeverities.length > 0) {
-    failures.push(`${failingSeverities.length} finding(s) at ${failOnSeverity} or above (${minConf}+ confidence)`);
-  }
-
-  // New findings gate (baseline)
-  if (diff) {
-    const newCritical = diff.newFindings.filter((f) => f.severity === "critical").length;
-    const newHigh = diff.newFindings.filter((f) => f.severity === "high").length;
-
-    if (newCritical > maxNewCritical) {
-      failures.push(`${newCritical} new critical finding(s) exceeds max ${maxNewCritical}`);
+    // Output report
+    let output: string;
+    switch (opts.format) {
+      case "json":
+        output = formatJson(result);
+        break;
+      case "sarif":
+        output = formatSarif(result);
+        break;
+      default:
+        output = formatPretty(result, diff);
     }
-    if (maxNewHigh !== undefined && newHigh > maxNewHigh) {
-      failures.push(`${newHigh} new high finding(s) exceeds max ${maxNewHigh}`);
-    }
-  }
 
-  if (failures.length > 0) {
-    console.log(pc.red("\n  CI FAILED:"));
-    for (const f of failures) {
-      console.log(pc.red(`    - ${f}`));
+    if (opts.output) {
+      writeFileSync(opts.output, output);
     }
-    console.log("");
+    console.log(output);
+
+    // Evaluate gates
+    const failures: string[] = [];
+
+    // Score gate
+    if (result.score < minScore) {
+      failures.push(`Score ${result.score} is below minimum ${minScore}`);
+    }
+
+    // Severity gate: any findings at or above fail-on severity with sufficient confidence
+    const failingSeverities = gatedFindings.filter(
+      (f) => severityLevel(f.severity) >= severityLevel(failOnSeverity),
+    );
+    if (failingSeverities.length > 0) {
+      failures.push(`${failingSeverities.length} finding(s) at ${failOnSeverity} or above (${minConf}+ confidence)`);
+    }
+
+    // New findings gate (baseline)
+    if (diff) {
+      const newCritical = diff.newFindings.filter((f) => f.severity === "critical").length;
+      const newHigh = diff.newFindings.filter((f) => f.severity === "high").length;
+
+      if (newCritical > maxNewCritical) {
+        failures.push(`${newCritical} new critical finding(s) exceeds max ${maxNewCritical}`);
+      }
+      if (maxNewHigh !== undefined && newHigh > maxNewHigh) {
+        failures.push(`${newHigh} new high finding(s) exceeds max ${maxNewHigh}`);
+      }
+    }
+
+    if (failures.length > 0) {
+      console.log(pc.red("\n  CI FAILED:"));
+      for (const f of failures) {
+        console.log(pc.red(`    - ${f}`));
+      }
+
+      // Show specific rule IDs + files that triggered the failure
+      if (failingSeverities.length > 0) {
+        console.log("");
+        console.log(pc.dim("  Failing findings:"));
+        for (const f of failingSeverities) {
+          const loc = f.line ? `:${f.line}` : "";
+          console.log(`    ${pc.red(f.ruleId)} ${pc.dim(`(${f.severity})`)} ${pc.dim(f.file + loc)}`);
+        }
+      }
+
+      console.log("");
+      process.exit(1);
+    } else {
+      console.log(pc.green("\n  CI PASSED\n"));
+    }
+  } catch (err) {
+    console.error(pc.red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
     process.exit(1);
-  } else {
-    console.log(pc.green("\n  CI PASSED\n"));
-  }
-}
-
-function confidenceLevel(c: Confidence): number {
-  switch (c) {
-    case "high": return 3;
-    case "med": return 2;
-    case "low": return 1;
-  }
-}
-
-function severityLevel(s: Severity): number {
-  switch (s) {
-    case "critical": return 4;
-    case "high": return 3;
-    case "med": return 2;
-    case "low": return 1;
   }
 }

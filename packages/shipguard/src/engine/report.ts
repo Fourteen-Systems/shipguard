@@ -1,16 +1,20 @@
 import pc from "picocolors";
 import type { ScanResult, Finding } from "./types.js";
 import type { BaselineDiff } from "./baseline.js";
+import { scoreStatus, buildDetectedList } from "./score.js";
 
 export function formatPretty(result: ScanResult, diff?: BaselineDiff): string {
   const lines: string[] = [];
   const { score, findings, waivedFindings, summary } = result;
 
-  // Score header
-  const scoreColor = score >= 80 ? pc.green : score >= 50 ? pc.yellow : pc.red;
-  const icon = score >= 80 ? "+" : score >= 50 ? "!" : "x";
+  // Header with detected stack
+  const detected = buildDetectedList(result);
+  const status = scoreStatus(score);
+  const scoreColor = status === "PASS" ? pc.green : status === "WARN" ? pc.yellow : pc.red;
   lines.push("");
-  lines.push(`  Shipguard Score: ${scoreColor(`${score}/100`)} ${icon === "+" ? pc.green("PASS") : icon === "!" ? pc.yellow("WARN") : pc.red("FAIL")}`);
+  lines.push(`  ${pc.bold("Shipguard")} ${pc.dim(result.shipguardVersion)}`);
+  lines.push(`  ${pc.dim("Detected:")} ${detected.join(" · ")}`);
+  lines.push(`  ${pc.dim("Score:")} ${scoreColor(String(score))} ${scoreColor(status)}`);
 
   if (diff) {
     const deltaStr = diff.scoreDelta >= 0 ? `+${diff.scoreDelta}` : `${diff.scoreDelta}`;
@@ -39,8 +43,12 @@ export function formatPretty(result: ScanResult, diff?: BaselineDiff): string {
       lines.push(`    ${f.ruleId} ${conf}`);
       lines.push(`      ${pc.dim(f.file + loc)}`);
       if (f.evidence.length > 0) {
-        lines.push(`      Evidence: ${f.evidence.join(", ")}`);
+        for (const e of f.evidence) {
+          lines.push(`      - ${e}`);
+        }
       }
+      lines.push(`      ${pc.dim(`Why ${f.confidence}: ${f.confidenceRationale}`)}`);
+
     }
     lines.push("");
   }

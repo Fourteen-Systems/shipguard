@@ -1,4 +1,4 @@
-import type { Severity, Confidence } from "../next/types.js";
+import type { Severity, Confidence, NextDepsIndex } from "../next/types.js";
 
 export interface Finding {
   ruleId: string;
@@ -12,6 +12,7 @@ export interface Finding {
   endColumn?: number;
   snippet?: string;
   evidence: string[];
+  confidenceRationale: string;
   remediation: string[];
   tags: string[];
 }
@@ -24,8 +25,16 @@ export interface Waiver {
   createdAt: string;
 }
 
+export interface WaiversFile {
+  version: 1;
+  waivers: Waiver[];
+}
+
 export interface Baseline {
   version: 1;
+  shipguardVersion: string;
+  configHash: string;
+  indexVersion: number;
   createdAt: string;
   score: number;
   findingKeys: string[];
@@ -33,8 +42,16 @@ export interface Baseline {
 
 export interface ScanResult {
   version: 1;
+  shipguardVersion: string;
+  configHash: string;
+  indexVersion: number;
   timestamp: string;
   framework: string;
+  detected: {
+    deps: NextDepsIndex;
+    trpc: boolean;
+    middleware: boolean;
+  };
   score: number;
   findings: Finding[];
   waivedFindings: Finding[];
@@ -66,8 +83,8 @@ export interface ShipguardConfig {
   };
   scoring: ScoringConfig;
   hints: {
-    auth: { functions: string[]; middlewareFiles: string[] };
-    rateLimit: { wrappers: string[] };
+    auth: { functions: string[]; middlewareFiles: string[]; allowlistPaths: string[] };
+    rateLimit: { wrappers: string[]; allowlistPaths: string[] };
     tenancy: { orgFieldNames: string[] };
   };
   rules: Record<string, { severity: Severity }>;

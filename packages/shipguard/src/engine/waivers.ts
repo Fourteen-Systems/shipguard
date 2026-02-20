@@ -1,16 +1,25 @@
 import path from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import type { Finding, Waiver } from "./types.js";
+import type { Finding, Waiver, WaiversFile } from "./types.js";
 
 export function loadWaivers(rootDir: string, waiversFile: string): Waiver[] {
   const abs = path.join(rootDir, waiversFile);
   if (!existsSync(abs)) return [];
-  return JSON.parse(readFileSync(abs, "utf8")) as Waiver[];
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(abs, "utf8"));
+  } catch (err) {
+    throw new Error(`Failed to parse ${abs}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  // Support both legacy array format and versioned format
+  if (Array.isArray(raw)) return raw as Waiver[];
+  return (raw as WaiversFile).waivers ?? [];
 }
 
 export function saveWaivers(rootDir: string, waiversFile: string, waivers: Waiver[]): void {
   const abs = path.join(rootDir, waiversFile);
-  writeFileSync(abs, JSON.stringify(waivers, null, 2) + "\n");
+  const file: WaiversFile = { version: 1, waivers };
+  writeFileSync(abs, JSON.stringify(file, null, 2) + "\n");
 }
 
 export function addWaiver(

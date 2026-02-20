@@ -1,6 +1,7 @@
 import path from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { Baseline, Finding, ScanResult } from "./types.js";
+import { SHIPGUARD_VERSION, INDEX_VERSION } from "./version.js";
 
 export function findingKey(f: Finding): string {
   return `${f.ruleId}::${f.file}::${f.line ?? 0}`;
@@ -10,6 +11,9 @@ export function writeBaseline(rootDir: string, result: ScanResult, filePath?: st
   const dest = filePath ?? path.join(rootDir, "shipguard.baseline.json");
   const baseline: Baseline = {
     version: 1,
+    shipguardVersion: SHIPGUARD_VERSION,
+    configHash: result.configHash,
+    indexVersion: INDEX_VERSION,
     createdAt: new Date().toISOString(),
     score: result.score,
     findingKeys: result.findings.map(findingKey),
@@ -20,7 +24,11 @@ export function writeBaseline(rootDir: string, result: ScanResult, filePath?: st
 
 export function loadBaseline(filePath: string): Baseline | undefined {
   if (!existsSync(filePath)) return undefined;
-  return JSON.parse(readFileSync(filePath, "utf8")) as Baseline;
+  try {
+    return JSON.parse(readFileSync(filePath, "utf8")) as Baseline;
+  } catch (err) {
+    throw new Error(`Failed to parse baseline ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export interface BaselineDiff {

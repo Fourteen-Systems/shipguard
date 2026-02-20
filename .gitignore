@@ -7,3 +7,19 @@ coverage/
 .env
 .env.*
 shipguard.baseline.json
+
+# Dev/internal
+gauntlet/
+fixtures/
+ROADMAP.md
+STRATEGY.md
+.claude/
+
+# OS
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

@@ -39,14 +39,47 @@ export interface NextMiddlewareIndex {
 export interface NextDepsIndex {
   hasNextAuth: boolean;
   hasClerk: boolean;
+  hasSupabase: boolean;
+  hasKinde: boolean;
+  hasWorkOS: boolean;
+  hasBetterAuth: boolean;
+  hasLucia: boolean;
+  hasAuth0: boolean;
+  hasIronSession: boolean;
+  hasFirebaseAuth: boolean;
   hasUpstashRatelimit: boolean;
+  hasArcjet: boolean;
+  hasUnkey: boolean;
   hasPrisma: boolean;
+  hasDrizzle: boolean;
+  hasTrpc: boolean;
 }
 
 export interface NextHints {
-  auth: { functions: string[]; middlewareFiles: string[] };
-  rateLimit: { wrappers: string[] };
+  auth: { functions: string[]; middlewareFiles: string[]; allowlistPaths: string[] };
+  rateLimit: { wrappers: string[]; allowlistPaths: string[] };
   tenancy: { orgFieldNames: string[] };
+}
+
+export interface TrpcProcedure {
+  kind: "trpc-procedure";
+  /** Dotted name, e.g. "post.add" */
+  name: string;
+  /** Router file where procedure is defined */
+  file: string;
+  line?: number;
+  procedureType: "public" | "protected" | "unknown";
+  procedureKind: "mutation" | "query" | "subscription" | "unknown";
+  signals: MutationSignals;
+  routerName?: string;
+}
+
+export interface TrpcIndex {
+  detected: boolean;
+  proxyFile?: string;
+  rootRouterFile?: string;
+  procedures: TrpcProcedure[];
+  mutationProcedures: TrpcProcedure[];
 }
 
 export interface NextIndex {
@@ -64,4 +97,5 @@ export interface NextIndex {
     all: NextServerAction[];
     mutationActions: NextServerAction[];
   };
+  trpc: TrpcIndex;
 }

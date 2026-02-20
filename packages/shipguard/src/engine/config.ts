@@ -23,7 +23,11 @@ export function loadConfigIfExists(rootDir: string): ShipguardConfig | undefined
   // For v1, only support JSON config natively.
   // TS/JS config requires a loader (tsx, jiti, etc.) — add in v1.1.
   if (file.endsWith(".json")) {
-    return JSON.parse(readFileSync(file, "utf8")) as ShipguardConfig;
+    try {
+      return JSON.parse(readFileSync(file, "utf8")) as ShipguardConfig;
+    } catch (err) {
+      throw new Error(`Failed to parse ${file}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // For .ts/.js, do a basic regex extraction of the config object.
@@ -48,14 +52,29 @@ export const DEFAULT_CONFIG: ShipguardConfig = {
   },
   hints: {
     auth: {
-      functions: ["auth", "getServerSession", "currentUser", "requireUser"],
+      functions: [
+        "auth", "getServerSession", "getSession", "currentUser",
+        "requireUser", "requireAuth",
+        "withAuth",                 // NextAuth v4 / WorkOS
+        "getKindeServerSession",    // Kinde
+        "validateRequest",          // Lucia
+        "getIronSession",           // iron-session
+        "withApiAuthRequired",      // Auth0
+        "verifyIdToken",            // Firebase Admin
+        "getTokens",               // next-firebase-auth-edge
+      ],
       middlewareFiles: ["middleware.ts"],
+      allowlistPaths: [],
     },
     rateLimit: {
-      wrappers: ["rateLimit", "withRateLimit", "ratelimit", "limit"],
+      wrappers: [
+        "rateLimit", "withRateLimit", "ratelimit", "limit",
+        "checkRateLimitAndThrowError", "ratelimitOrThrow", "rateLimitOrThrow",
+      ],
+      allowlistPaths: [],
     },
     tenancy: {
-      orgFieldNames: ["orgId", "tenantId", "workspaceId"],
+      orgFieldNames: ["orgId", "tenantId", "workspaceId", "organizationId", "teamId", "accountId"],
     },
   },
   rules: {
@@ -85,14 +104,24 @@ export function writeDefaultConfig(rootDir: string, opts: { force?: boolean }): 
     },
     hints: {
       auth: {
-        functions: ["auth", "getServerSession", "currentUser", "requireUser"],
+        functions: [
+          "auth", "getServerSession", "getSession", "currentUser",
+          "requireUser", "requireAuth",
+          "withAuth", "getKindeServerSession", "validateRequest",
+          "getIronSession", "withApiAuthRequired", "verifyIdToken", "getTokens"
+        ],
         middlewareFiles: ["middleware.ts"],
+        allowlistPaths: []
       },
       rateLimit: {
-        wrappers: ["rateLimit", "withRateLimit", "limit"],
+        wrappers: [
+          "rateLimit", "withRateLimit", "limit",
+          "checkRateLimitAndThrowError", "ratelimitOrThrow", "rateLimitOrThrow"
+        ],
+        allowlistPaths: []
       },
       tenancy: {
-        orgFieldNames: ["orgId", "tenantId", "workspaceId"],
+        orgFieldNames: ["orgId", "tenantId", "workspaceId", "organizationId", "teamId", "accountId"]
       },
     },
     waiversFile: "shipguard.waivers.json",

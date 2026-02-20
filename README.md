@@ -1,8 +1,8 @@
 # Shipguard
 
-Code-level operational maturity analysis for Next.js projects.
+CI guardrail that blocks unprotected mutation routes in Next.js SaaS.
 
-Shipguard statically analyzes your Next.js App Router codebase for missing production primitives — auth boundaries, rate limiting, and tenant scoping — and outputs a readiness score. It fails CI on regressions so you ship with confidence.
+Shipguard statically analyzes your Next.js App Router codebase and flags mutation endpoints missing auth boundaries, rate limiting, or tenant scoping. It understands your stack — Auth.js, Clerk, Supabase, tRPC, Prisma — and stays quiet when protections are in place.
 
 ## Quick Start
 
@@ -10,7 +10,13 @@ Shipguard statically analyzes your Next.js App Router codebase for missing produ
 npx shipguard init
 ```
 
-This detects your framework, generates a config, and runs your first scan.
+Detects your framework and dependencies, generates a config, and runs your first scan.
+
+```
+  Shipguard 0.1.0
+  Detected: next-app-router · clerk · prisma · trpc · middleware
+  Score: 85 PASS
+```
 
 ## Usage
 
@@ -18,10 +24,20 @@ This detects your framework, generates a config, and runs your first scan.
 # Scan and print report
 shipguard
 
+# Only run specific rules
+shipguard scan --only AUTH-BOUNDARY-MISSING,RATE-LIMIT-MISSING
+
+# Exclude paths
+shipguard scan --exclude "app/api/internal/**"
+
+# JSON or SARIF output
+shipguard scan --format json
+shipguard scan --format sarif --output report.sarif
+
 # CI mode (fail on critical findings)
 shipguard ci --fail-on critical --min-confidence high
 
-# Save baseline
+# Save baseline for regression detection
 shipguard baseline --write
 
 # Waive a finding
@@ -34,19 +50,100 @@ shipguard rules
 shipguard explain AUTH-BOUNDARY-MISSING
 ```
 
-## Rules (v1)
+## What It Detects
 
-| Rule | Default Severity | What it checks |
-|------|-----------------|----------------|
-| AUTH-BOUNDARY-MISSING | critical | Mutation endpoints without auth |
+### Rules
+
+| Rule | Severity | What it catches |
+|------|----------|----------------|
+| AUTH-BOUNDARY-MISSING | critical | Mutation endpoints without auth checks |
 | RATE-LIMIT-MISSING | critical | Public API routes without rate limiting |
 | TENANCY-SCOPE-MISSING | critical | Prisma queries without tenant scoping |
 
-See [PATTERNS.md](PATTERNS.md) for full detection logic and known limitations.
+### Stack Support
+
+Shipguard auto-detects your stack and adjusts detection accordingly:
+
+| Stack | What Shipguard understands |
+|-------|---------------------------|
+| **Auth.js / NextAuth** | `auth()`, `getServerSession()`, middleware auth |
+| **Clerk** | `auth()`, `currentUser()`, `clerkMiddleware()` |
+| **Supabase** | `.auth.getUser()`, `.auth.getSession()` (call-based, not import-based) |
+| **tRPC** | `protectedProcedure` vs `publicProcedure`, `.mutation()` surfaces |
+| **Prisma** | `.create()`, `.update()`, `.delete()` as mutation evidence, tenant scoping |
+| **Drizzle** | Detected but gracefully degraded (tenancy rule skips) |
+| **Upstash** | `Ratelimit`, `ratelimit.limit()` as rate-limit evidence |
+
+### What It Skips
+
+- Webhook routes (`/api/webhooks/*`) — exempt from rate-limit
+- Cron routes (`/api/cron/*`) — exempt from rate-limit
+- `GET`-only route handlers — not mutation surfaces
+- Routes covered by `middleware.ts` auth — no double-flagging
+- HOF-wrapped handlers (`withAuth(handler)`) — detected as auth boundary
+
+See [PATTERNS.md](PATTERNS.md) for full detection logic.
+
+## GitHub Action
+
+```yaml
+name: Shipguard
+on: [pull_request]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  shipguard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - uses: shipguard/action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          min-score: 70
+          fail-on: critical
+          min-confidence: high
+```
+
+The action:
+- Comments on PRs with findings, score, and detected stack
+- Adds inline annotations on flagged files
+- Shows score delta when a baseline is provided
+- Updates the same comment on re-runs (no spam)
+
+### Action Inputs
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `fail-on` | `critical` | Minimum severity to fail the check |
+| `min-confidence` | `high` | Minimum confidence to include |
+| `min-score` | `70` | Minimum passing score |
+| `baseline` | — | Path to baseline file for regression detection |
+| `max-new-critical` | `0` | Max new critical findings allowed |
+| `max-new-high` | — | Max new high findings allowed |
+| `comment` | `true` | Post a PR comment with findings |
+| `annotations` | `true` | Add inline file annotations |
+
+### Action Outputs
+
+| Output | Description |
+|--------|-------------|
+| `score` | Shipguard score (0-100) |
+| `findings` | Total number of findings |
+| `result` | `PASS`, `WARN`, or `FAIL` |
 
 ## Configuration
 
-Create `shipguard.config.json` (or run `shipguard init`):
+Most teams do not need to configure Shipguard. Run `shipguard init` and commit the generated config.
+
+For advanced use cases, create `shipguard.config.json`:
 
 ```json
 {
@@ -61,43 +158,47 @@ Create `shipguard.config.json` (or run `shipguard init`):
   },
   "hints": {
     "auth": {
-      "functions": ["auth", "getServerSession", "currentUser", "requireUser"],
-      "middlewareFiles": ["middleware.ts"]
+      "functions": ["auth", "getServerSession", "currentUser"],
+      "middlewareFiles": ["middleware.ts"],
+      "allowlistPaths": ["app/api/public/**"]
     },
     "rateLimit": {
-      "wrappers": ["rateLimit", "withRateLimit", "limit"]
+      "wrappers": ["rateLimit", "withRateLimit"],
+      "allowlistPaths": ["app/api/webhooks/**"]
     },
     "tenancy": {
       "orgFieldNames": ["orgId", "tenantId", "workspaceId"]
     }
-  },
-  "waiversFile": "shipguard.waivers.json"
+  }
 }
 ```
 
 ### Hints
 
-Hints are how you make Shipguard accurate for your codebase. If you use a custom auth wrapper or rate limiting function, add it to hints so Shipguard recognizes it.
+Hints tell Shipguard about your codebase-specific patterns. If you use a custom auth wrapper like `requireAuth()` or a rate limiting function like `withRateLimit()`, add it to hints so Shipguard recognizes it and doesn't flag protected routes.
 
-## GitHub Action
-
-```yaml
-- uses: shipguard/action@v1
-  with:
-    min-score: 70
-    fail-on: critical
-    min-confidence: high
-```
+Most built-in patterns (Auth.js, Clerk, Supabase, tRPC, Upstash) are detected automatically — hints are for your custom wrappers.
 
 ## Confidence Levels
 
-Every finding has a confidence level (high, med, low). In CI mode, use `--min-confidence` to control noise:
+Every finding has a confidence level:
+
+- **high** — strong evidence (e.g., `publicProcedure.mutation()` with `prisma.create`)
+- **med** — likely but uncertain (e.g., unrecognized procedure type)
+- **low** — possible issue, may be false positive
+
+Use `--min-confidence` in CI to control noise:
 
 ```bash
-# Only fail on high-confidence criticals
-shipguard ci --fail-on critical --min-confidence high
+shipguard ci --min-confidence high
 ```
+
+## Compatibility
+
+Shipguard has no runtime dependency on Next.js, but it tracks evolving ecosystem patterns. Updates primarily add new detectors and improve confidence — not compatibility fixes.
+
+Requires Next.js App Router (13.4+). Pages Router is not supported.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE)

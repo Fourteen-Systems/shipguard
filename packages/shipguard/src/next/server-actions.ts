@@ -11,24 +11,32 @@ const PRISMA_WRITE_METHODS = [
 export async function findServerActions(
   rootDir: string,
   excludeGlobs: string[],
+  appDir: string = "app",
 ): Promise<NextServerAction[]> {
-  const files = fg.globSync("app/**/*.{ts,tsx,js,jsx}", {
+  const files = fg.globSync(`${appDir}/**/*.{ts,tsx,js,jsx}`, {
     cwd: rootDir,
     ignore: ["**/node_modules/**", "**/route.{ts,js,tsx,jsx}", ...excludeGlobs],
   });
 
-  // Also check src/ for server actions
-  const srcFiles = fg.globSync("src/**/*.{ts,tsx,js,jsx}", {
-    cwd: rootDir,
-    ignore: ["**/node_modules/**", ...excludeGlobs],
-  });
+  // Also check src/ for server actions (if appDir isn't already src/app)
+  const srcFiles = appDir.startsWith("src/")
+    ? []
+    : fg.globSync("src/**/*.{ts,tsx,js,jsx}", {
+        cwd: rootDir,
+        ignore: ["**/node_modules/**", ...excludeGlobs],
+      });
 
   const allFiles = [...files, ...srcFiles];
   const actions: NextServerAction[] = [];
 
   for (const file of allFiles) {
     const abs = path.join(rootDir, file);
-    const src = readFileSync(abs, "utf8");
+    let src: string;
+    try {
+      src = readFileSync(abs, "utf8");
+    } catch {
+      continue; // Skip unreadable files
+    }
 
     // Check for "use server" directive (file-level or inline)
     if (!/["']use server["']/m.test(src)) continue;
@@ -75,11 +83,20 @@ function extractExportedFunctions(src: string, isFileLevel: boolean): string[] {
     }
   } else {
     // Only functions after inline "use server" are actions
-    // For v1, we approximate by finding async functions with "use server" inside
+    // Match function declarations with "use server" inside the body
     const inlineMatches = src.matchAll(
       /(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\([^)]*\)\s*\{[^}]*?["']use server["']/g,
     );
     for (const m of inlineMatches) {
+      names.push(m[1]);
+    }
+    // Match arrow functions with "use server" inside the body
+    // e.g.: export const foo = async () => { "use server"; ... }
+    //       const bar = async (data: FormData) => { "use server"; ... }
+    const arrowMatches = src.matchAll(
+      /(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[a-zA-Z_]\w*)\s*=>\s*\{[^}]*?["']use server["']/g,
+    );
+    for (const m of arrowMatches) {
       names.push(m[1]);
     }
   }

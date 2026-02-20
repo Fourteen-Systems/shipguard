@@ -14,10 +14,15 @@ export async function cmdBaseline(opts: BaselineOptions): Promise<void> {
     return;
   }
 
-  const rootDir = process.cwd();
-  const result = await runScan({ rootDir });
-  const dest = writeBaseline(rootDir, result, opts.output);
+  try {
+    const rootDir = process.cwd();
+    const result = await runScan({ rootDir });
+    const dest = writeBaseline(rootDir, result, opts.output);
 
-  console.log(pc.green(`  Baseline written to ${dest}`));
-  console.log(pc.dim(`  Score: ${result.score}/100 | Findings: ${result.findings.length}`));
+    console.log(pc.green(`  Baseline written to ${dest}`));
+    console.log(pc.dim(`  Score: ${result.score} | Findings: ${result.findings.length}`));
+  } catch (err) {
+    console.error(pc.red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
+    process.exit(1);
+  }
 }

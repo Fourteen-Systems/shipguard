@@ -2,6 +2,9 @@
   "name": "shipguard-root",
   "private": true,
   "packageManager": "pnpm@10.28.2",
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  },
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
