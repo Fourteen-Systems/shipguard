@@ -11,10 +11,6 @@
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
-    "outDir": "dist",
-    "rootDir": "src"
-  },
-  "include": ["src"],
-  "exclude": ["node_modules", "dist", "fixtures", "gauntlet"]
+    "sourceMap": true
+  }
 }
