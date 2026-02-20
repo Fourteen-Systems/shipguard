@@ -306,7 +306,7 @@ function gatherProcedureSource(lines: string[], startLine: number): string {
     collected.push(line);
 
     // Stop after a trailing `),` at entry-level indentation (procedure chain ended)
-    if (trimmed === ")," || trimmed === "),") break;
+    if (trimmed === "),") break;
   }
 
   return collected.join("\n");
