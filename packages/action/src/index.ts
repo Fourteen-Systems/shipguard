@@ -161,43 +161,64 @@ function buildCommentBody(
 ): string {
   const lines: string[] = [COMMENT_MARKER];
   const status = scoreStatus(gatedScore);
-  const icon = status === "PASS" ? "\u2705" : status === "WARN" ? "\u26A0\uFE0F" : "\uD83D\uDEA8";
-
-  // Header
-  lines.push(`## ${icon} Shipguard`);
+  // Header — consistent shield branding, status in text
+  lines.push(`## \u{1F6E1}\uFE0F Shipguard \u2014 Score: ${gatedScore} ${status}`);
   lines.push("");
-  lines.push(`**Score: ${gatedScore} ${status}**`);
 
   // Detected stack
   const detected = buildDetectedList(result);
-  lines.push(`Detected: ${detected.join(" \u00B7 ")}`);
+  lines.push(`> ${detected.join(" \u00B7 ")}`);
+
+  // No-auth warning
+  const d = result.detected.deps;
+  const hasAnyAuth = d.hasNextAuth || d.hasClerk || d.hasSupabase || d.hasKinde ||
+    d.hasWorkOS || d.hasBetterAuth || d.hasLucia || d.hasAuth0 || d.hasIronSession ||
+    d.hasFirebaseAuth;
+  if (!hasAnyAuth && !result.detected.middleware) {
+    lines.push(">");
+    lines.push(`> \u26A0\uFE0F **No auth provider detected.** Public mutation endpoints will be treated as high risk.`);
+  }
+
   lines.push("");
 
   if (gatedFindings.length === 0) {
-    lines.push("No findings.");
+    lines.push("No security findings \u2014 all mutation endpoints are protected.");
   } else {
-    // Severity summary table
+    // Compact severity bar
     const counts = countBySeverity(gatedFindings);
-    lines.push("| Severity | Count |");
-    lines.push("|----------|-------|");
-    if (counts.critical > 0) lines.push(`| Critical | ${counts.critical} |`);
-    if (counts.high > 0) lines.push(`| High | ${counts.high} |`);
-    if (counts.med > 0) lines.push(`| Med | ${counts.med} |`);
-    if (counts.low > 0) lines.push(`| Low | ${counts.low} |`);
+    lines.push(`| ${sevIcon("critical")} Critical | ${sevIcon("high")} High | ${sevIcon("med")} Med | ${sevIcon("low")} Low |`);
+    lines.push("|---|---|---|---|");
+    lines.push(`| ${counts.critical || "\u2014"} | ${counts.high || "\u2014"} | ${counts.med || "\u2014"} | ${counts.low || "\u2014"} |`);
     lines.push("");
 
-    // Findings table
+    // Findings table with severity icon and message
     lines.push("### Findings");
     lines.push("");
-    lines.push("| Rule | File | Confidence |");
-    lines.push("|------|------|------------|");
+    lines.push("| | Rule | File | Message |");
+    lines.push("|---|---|---|---|");
     for (const f of gatedFindings) {
       const loc = f.line ? `${f.file}:${f.line}` : f.file;
-      lines.push(`| ${f.ruleId} | \`${loc}\` | ${f.confidence} |`);
+      lines.push(`| ${sevIcon(f.severity)} | ${f.ruleId} | \`${loc}\` | ${f.message} |`);
     }
     lines.push("");
 
-    // Remediation
+    // Collapsible evidence & confidence
+    lines.push("<details>");
+    lines.push("<summary>Evidence & confidence</summary>");
+    lines.push("");
+    for (const f of gatedFindings) {
+      const loc = f.line ? `${f.file}:${f.line}` : f.file;
+      lines.push(`**${f.ruleId}** \u00B7 \`${loc}\` \u00B7 ${f.confidence} confidence`);
+      for (const e of f.evidence) {
+        lines.push(`- ${e}`);
+      }
+      lines.push(`- *${f.confidenceRationale}*`);
+      lines.push("");
+    }
+    lines.push("</details>");
+    lines.push("");
+
+    // Collapsible remediation
     const remediations = collectRemediations(gatedFindings);
     if (remediations.length > 0) {
       lines.push("<details>");
@@ -215,26 +236,47 @@ function buildCommentBody(
   // Baseline delta
   if (diff) {
     const delta = diff.scoreDelta >= 0 ? `+${diff.scoreDelta}` : `${diff.scoreDelta}`;
-    lines.push(`> Score delta from baseline: **${delta}** (${diff.newFindings.length} new, ${diff.resolvedKeys.length} resolved)`);
+    lines.push(`> **Baseline:** Score delta **${delta}** \u00B7 ${diff.newFindings.length} new \u00B7 ${diff.resolvedKeys.length} resolved`);
     lines.push("");
   }
 
   // Footer
   lines.push("---");
-  lines.push(`*Shipguard ${result.shipguardVersion}*`);
+  lines.push(`<sub>Shipguard ${result.shipguardVersion}</sub>`);
 
   return lines.join("\n");
+}
+
+function sevIcon(severity: string): string {
+  switch (severity) {
+    case "critical": return "\uD83D\uDD34";
+    case "high": return "\uD83D\uDFE0";
+    case "med": return "\uD83D\uDFE1";
+    case "low": return "\u26AA";
+    default: return "\u26AA";
+  }
 }
 
 // --- Job Summary ---
 
 async function writeSummary(gatedScore: number, gatedFindings: Finding[], diff?: BaselineDiff): Promise<void> {
   const status = scoreStatus(gatedScore);
+  const counts = countBySeverity(gatedFindings);
 
   core.summary
     .addHeading("Shipguard Report")
     .addRaw(`**Score: ${gatedScore} ${status}** | Findings: ${gatedFindings.length}`)
     .addEOL();
+
+  if (gatedFindings.length > 0) {
+    const parts: string[] = [];
+    if (counts.critical > 0) parts.push(`${counts.critical} critical`);
+    if (counts.high > 0) parts.push(`${counts.high} high`);
+    if (counts.med > 0) parts.push(`${counts.med} med`);
+    if (counts.low > 0) parts.push(`${counts.low} low`);
+    core.summary.addRaw(parts.join(" \u00B7 "));
+    core.summary.addEOL();
+  }
 
   if (diff) {
     const delta = diff.scoreDelta >= 0 ? `+${diff.scoreDelta}` : `${diff.scoreDelta}`;
