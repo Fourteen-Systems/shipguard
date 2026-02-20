@@ -7,13 +7,13 @@
     "build": "tsc && node scripts/bundle.js"
   },
   "dependencies": {
-    "@actions/core": "^1.11.1",
-    "@actions/github": "^6.0.0",
+    "@actions/core": "^3.0.0",
+    "@actions/github": "^9.0.0",
     "@fourteensystems/shipguard": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "esbuild": "^0.24.0",
+    "esbuild": "^0.25.0",
     "typescript": "^5.7.0"
   }
 }
