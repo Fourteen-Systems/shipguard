@@ -16,7 +16,7 @@ import {
   type ScanResult,
   type Finding,
   type Severity,
-} from "shipguard";
+} from "@fourteensystems/shipguard";
 
 const COMMENT_MARKER = "<!-- shipguard-action -->";
 

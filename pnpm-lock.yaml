@@ -16,7 +16,7 @@ importers:
       '@actions/github':
         specifier: ^6.0.0
         version: 6.0.1
-      shipguard:
+      '@fourteensystems/shipguard':
         specifier: workspace:*
         version: link:../shipguard
     devDependencies:
@@ -41,13 +41,13 @@ importers:
       picocolors:
         specifier: ^1.1.1
         version: 1.1.1
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.11
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.11)

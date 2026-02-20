@@ -9,7 +9,7 @@
   "dependencies": {
     "@actions/core": "^1.11.1",
     "@actions/github": "^6.0.0",
-    "shipguard": "workspace:*"
+    "@fourteensystems/shipguard": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
