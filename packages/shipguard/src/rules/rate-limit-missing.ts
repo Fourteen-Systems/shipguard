@@ -127,17 +127,16 @@ function checkRoute(
   index: NextIndex,
   config: ShipguardConfig,
 ): CheckResult | null {
+  // Use ProtectionSummary if available (computed during index building)
+  if (route.protection) {
+    if (route.protection.rateLimit.satisfied) return null;
+
+    // If wrapper introspection deferred this to WRAPPER-UNRECOGNIZED, don't emit per-route finding
+    if (route.protection.rateLimit.unverifiedWrappers.length > 0) return null;
+  }
+
   const src = readSource(index.rootDir, route.file);
   if (!src) return null;
-
-  // Check for known rate limit wrappers (call inside handler body)
-  if (hasRateLimitCall(src, config.hints.rateLimit.wrappers)) return null;
-
-  // Check if handler is wrapped by a known rate-limit function (HOF pattern)
-  if (isWrappedByKnownFunction(src, config.hints.rateLimit.wrappers)) return null;
-
-  // Check if middleware handles rate limiting for this route
-  if (index.middleware.rateLimitLikely) return null;
 
   // Routes with webhook signature verification don't need rate limiting
   if (hasWebhookSignatureAuth(src)) return null;
@@ -174,16 +173,6 @@ function checkRoute(
     evidence.push("public API route without rate limiting");
   }
 
-  // Downgrade if handler is exported via unknown HOF wrapper (may contain rate limiting)
-  if (isWrappedByUnknownFunction(src)) {
-    if (severity === "critical") severity = "high";
-    if (confidence === "high") {
-      confidence = "med";
-      confidenceRationale = "Medium: handler is wrapped by a higher-order function (may contain rate limiting)";
-    }
-    evidence.push("handler exported via HOF wrapper (may contain rate limiting)");
-  }
-
   return { severity, confidence, confidenceRationale, evidence };
 }
 
@@ -200,32 +189,6 @@ function hasRateLimitCall(src: string, wrappers: string[]): boolean {
   if (/@unkey\/ratelimit/.test(src)) return true;
 
   return false;
-}
-
-/**
- * Check if handler is wrapped by a known function (HOF pattern).
- * E.g.: export const GET = withWorkspace(async () => { ... })
- */
-function isWrappedByKnownFunction(src: string, functions: string[]): boolean {
-  for (const fn of functions) {
-    const escaped = escapeRegex(fn);
-    const hofPattern = new RegExp(
-      `export\\s+(?:const|let|var)\\s+(?:GET|POST|PUT|PATCH|DELETE)\\s*=\\s*${escaped}\\s*\\(`,
-      "m",
-    );
-    if (hofPattern.test(src)) return true;
-
-    const defaultPattern = new RegExp(`export\\s+default\\s+${escaped}\\s*\\(`, "m");
-    if (defaultPattern.test(src)) return true;
-  }
-  return false;
-}
-
-/**
- * Detect if handler is exported via any HOF wrapper (unknown function name).
- */
-function isWrappedByUnknownFunction(src: string): boolean {
-  return /export\s+(?:const|let|var)\s+(?:GET|POST|PUT|PATCH|DELETE)\s*=\s*[a-zA-Z_]\w*\s*\(/m.test(src);
 }
 
 /**

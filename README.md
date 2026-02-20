@@ -2,7 +2,9 @@
 
 CI guardrail that blocks unprotected mutation routes in Next.js SaaS.
 
-Shipguard statically analyzes your Next.js App Router codebase and flags mutation endpoints missing auth boundaries, rate limiting, or tenant scoping. It understands your stack — Auth.js, Clerk, Supabase, tRPC, Prisma — and stays quiet when protections are in place.
+Shipguard statically analyzes your Next.js App Router codebase and flags mutation endpoints missing auth boundaries, rate limiting, or tenant scoping. It understands your stack — Auth.js, Clerk, Supabase, tRPC, Prisma — resolves your wrapper implementations, and stays quiet when protections are in place.
+
+Zero config for most projects. Shipguard auto-detects your auth library, rate limiter, ORM, middleware, tsconfig path aliases, and HOF wrappers. No manual hints needed unless you're doing something exotic.
 
 ## Quick Start
 
@@ -14,7 +16,7 @@ Detects your framework and dependencies, generates a config, and runs your first
 
 ```
   Shipguard 0.1.0
-  Detected: next-app-router · clerk · prisma · trpc · middleware
+  Detected: next-app-router · next-auth · prisma · upstash-ratelimit · middleware.ts
   Score: 85 PASS
 ```
 
@@ -59,6 +61,27 @@ shipguard explain AUTH-BOUNDARY-MISSING
 | AUTH-BOUNDARY-MISSING | critical | Mutation endpoints without auth checks |
 | RATE-LIMIT-MISSING | critical | Public API routes without rate limiting |
 | TENANCY-SCOPE-MISSING | critical | Prisma queries without tenant scoping |
+| WRAPPER-UNRECOGNIZED | high | HOF wrappers that couldn't be verified for auth/rate-limit enforcement |
+
+### Wrapper Introspection
+
+The dominant pattern in real-world Next.js codebases is HOF wrappers:
+
+```ts
+export const POST = withWorkspace(async (req) => {
+  await prisma.user.create({ data: { name: "test" } });
+  return Response.json({});
+});
+```
+
+Shipguard doesn't just detect the wrapper name — it **follows the import, reads the implementation, and verifies enforcement**:
+
+1. **Resolve**: follows `import { withWorkspace } from "@/lib/auth"` through tsconfig path aliases (`@/lib/*` → `lib/*`), barrel re-exports (`index.ts` → `export * from "./workspace"`), up to 5 hops with cycle detection
+2. **Analyze**: parses the wrapper body with TypeScript AST to find auth/rate-limit calls
+3. **Verify enforcement**: checks that the call result is used in a conditional (`if (!session) throw`) — calling `getSession()` without checking the result is NOT an auth boundary
+4. **Apply**: routes using a verified wrapper are automatically cleared, no hints needed
+
+When a wrapper can't be resolved (npm package) or enforcement can't be proven, Shipguard emits a single grouped `WRAPPER-UNRECOGNIZED` finding instead of N identical per-route alerts.
 
 ### Stack Support
 
@@ -89,7 +112,7 @@ Shipguard auto-detects your stack and adjusts detection accordingly:
 - Cron routes (`/api/cron/*`) — exempt from rate-limit
 - `GET`-only route handlers — not mutation surfaces
 - Routes covered by `middleware.ts` auth — no double-flagging
-- HOF-wrapped handlers (`withAuth(handler)`) — detected as auth boundary
+- Routes wrapped by verified HOF wrappers (`withWorkspace(handler)` where auth+RL enforcement is proven)
 
 See [PATTERNS.md](PATTERNS.md) for full detection logic.
 
@@ -149,9 +172,27 @@ The action:
 | `findings` | Total number of findings |
 | `result` | `PASS`, `WARN`, or `FAIL` |
 
+## Monorepos
+
+Shipguard must be run from the Next.js app directory (the one with `package.json` and `app/`). In a monorepo like Turborepo or pnpm workspaces:
+
+```bash
+# CLI — cd into the app
+cd apps/web && npx @fourteensystems/shipguard scan
+
+# GitHub Action — use working-directory
+- uses: Fourteen-Systems/shipguard-action@v1
+  with:
+    working-directory: apps/web
+```
+
+Shipguard automatically reads dependencies from both the app's `package.json` and the workspace root, and checks for `middleware.ts` at both levels. tsconfig `extends` chains (e.g., `"extends": "tsconfig/nextjs.json"`) and monorepo path aliases are resolved automatically.
+
 ## Configuration
 
 Most teams do not need to configure Shipguard. Run `shipguard init` and commit the generated config.
+
+With wrapper introspection, Shipguard resolves and analyzes your custom wrappers automatically. Hints are only needed for edge cases where the wrapper can't be resolved (e.g., auth handled by an API gateway, rate limiting at the CDN edge).
 
 For advanced use cases, create `shipguard.config.json`:
 
@@ -185,9 +226,13 @@ For advanced use cases, create `shipguard.config.json`:
 
 ### Hints
 
-Hints tell Shipguard about your codebase-specific patterns. If you use a custom auth wrapper like `requireAuth()` or a rate limiting function like `withRateLimit()`, add it to hints so Shipguard recognizes it and doesn't flag protected routes.
+Hints are the "hard allow" escape hatch. Add function names when Shipguard can't verify protection automatically:
 
-Most built-in patterns (Auth.js, Clerk, Supabase, Kinde, WorkOS, Lucia, Auth0, Firebase, tRPC, Upstash, Arcjet, Unkey) are detected automatically — hints are for your custom wrappers.
+- **Wrapper introspection handles most cases** — if your wrapper calls `getSession()` and throws on failure, Shipguard detects this without hints
+- **Unresolvable wrappers** (npm packages, API gateway auth) need hints: add to `hints.auth.functions` or `hints.rateLimit.wrappers`
+- **CDN/edge rate limiting** (Cloudflare, Vercel) is invisible to static analysis — use waivers or allowlist paths
+
+Most built-in patterns (Auth.js, Clerk, Supabase, Kinde, WorkOS, Lucia, Auth0, Firebase, tRPC, Upstash, Arcjet, Unkey) are detected automatically.
 
 ## Confidence Levels
 

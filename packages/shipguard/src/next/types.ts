@@ -5,6 +5,21 @@ export type Confidence = "low" | "med" | "high";
 
 export type RouteKind = "route-handler" | "server-action";
 
+export type EvidenceSource = "direct" | "wrapper" | "middleware" | "hint";
+
+export interface ProtectionStatus {
+  satisfied: boolean;
+  enforced: boolean;
+  sources: EvidenceSource[];
+  details: string[];
+  unverifiedWrappers: string[];
+}
+
+export interface ProtectionSummary {
+  auth: ProtectionStatus;
+  rateLimit: ProtectionStatus;
+}
+
 export interface NextRoute {
   kind: "route-handler";
   file: string;
@@ -13,6 +28,7 @@ export interface NextRoute {
   isApi: boolean;
   isPublic: boolean;
   signals: MutationSignals;
+  protection?: ProtectionSummary;
 }
 
 export interface NextServerAction {
@@ -82,6 +98,29 @@ export interface TrpcIndex {
   mutationProcedures: TrpcProcedure[];
 }
 
+export interface WrapperEvidence {
+  authCallPresent: boolean;
+  authEnforced: boolean;
+  rateLimitCallPresent: boolean;
+  rateLimitEnforced: boolean;
+  authDetails: string[];
+  rateLimitDetails: string[];
+}
+
+export interface WrapperAnalysis {
+  name: string;
+  definitionFile?: string;
+  resolved: boolean;
+  evidence: WrapperEvidence;
+  usageCount: number;
+  usageFiles: string[];
+  mutationRouteCount: number;
+}
+
+export interface WrapperIndex {
+  wrappers: Map<string, WrapperAnalysis>;
+}
+
 export interface NextIndex {
   version: 1;
   framework: Framework;
@@ -89,6 +128,7 @@ export interface NextIndex {
   deps: NextDepsIndex;
   hints: NextHints;
   middleware: NextMiddlewareIndex;
+  wrappers: WrapperIndex;
   routes: {
     all: NextRoute[];
     mutationRoutes: NextRoute[];

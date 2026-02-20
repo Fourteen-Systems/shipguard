@@ -7,6 +7,8 @@ import { analyzeMiddleware } from "./middleware.js";
 import { findRouteHandlers, classifyMutationRoutes } from "./routes.js";
 import { findServerActions, classifyMutationActions } from "./server-actions.js";
 import { buildTrpcIndex } from "./trpc.js";
+import { buildWrapperIndex, computeProtection } from "./wrappers.js";
+import { loadTsconfigPaths } from "../util/resolve.js";
 
 export type { NextIndex } from "./types.js";
 export { detectNextAppRouter } from "./detect.js";
@@ -40,6 +42,22 @@ export async function buildNextIndex(
 
   const trpc = await buildTrpcIndex(rootDir, appDir, exclude);
 
+  // Wrapper introspection: resolve, analyze, compute protection
+  const tsconfigPaths = loadTsconfigPaths(rootDir);
+  const resolveOpts = { rootDir, tsconfigPaths };
+  const wrappers = buildWrapperIndex(
+    allRoutes,
+    rootDir,
+    resolveOpts,
+    hints.auth.functions,
+    hints.rateLimit.wrappers,
+  );
+
+  // Compute protection summary for each route
+  for (const route of allRoutes) {
+    route.protection = computeProtection(route, wrappers, middleware, hints, rootDir);
+  }
+
   return {
     version: 1,
     framework: "next-app-router",
@@ -47,6 +65,7 @@ export async function buildNextIndex(
     deps,
     hints,
     middleware,
+    wrappers,
     routes: { all: allRoutes, mutationRoutes },
     serverActions: { all: allActions, mutationActions: mutationActions },
     trpc,

@@ -1,6 +1,6 @@
 # Shipguard Action
 
-GitHub Action that scans your Next.js App Router codebase for unprotected mutation routes and comments on PRs with findings.
+GitHub Action that scans your Next.js App Router codebase for unprotected mutation routes and comments on PRs with findings. Resolves HOF wrapper implementations, verifies auth/rate-limit enforcement via TypeScript AST, and groups unverified wrappers into single findings.
 
 ## Usage
 
@@ -26,7 +26,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-The action posts a PR comment with findings, adds inline annotations on flagged files, and fails the check if thresholds are violated.
+The action posts a PR comment with score, findings, and detected stack. Adds inline annotations on flagged files and fails the check if thresholds are violated.
 
 ## Inputs
 
@@ -58,9 +58,23 @@ The action posts a PR comment with findings, adds inline annotations on flagged 
 - Updates the same comment on re-runs (no spam)
 - Fails the check if score or severity thresholds are violated
 
+## Monorepos
+
+For monorepos (Turborepo, pnpm workspaces), point to the Next.js app directory:
+
+```yaml
+- uses: fourteensystems/shipguard-action@v1
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  with:
+    working-directory: apps/web
+```
+
+Shipguard automatically reads dependencies from both the app and workspace root, resolves tsconfig path aliases across the monorepo, and follows wrapper imports through barrel re-exports.
+
 ## Configuration
 
-Most projects need no configuration. Run `npx shipguard init` locally to generate a config if you need custom hints.
+Most projects need no configuration. Shipguard auto-detects your stack, resolves wrapper implementations, and verifies auth/rate-limit enforcement automatically. Run `npx @fourteensystems/shipguard init` locally to generate a config if you need custom hints for edge cases.
 
 See [shipguard](https://github.com/fourteensystems/shipguard) for full documentation.
 
