@@ -30,22 +30,31 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
     if (isAllowlisted(route.file, authAllowlist)) continue;
     const result = checkRoute(route, index, config);
     if (result) {
+      const isWebhook = /webhook/i.test(route.pathname ?? route.file);
       findings.push({
         ruleId: RULE_ID,
         severity: severityFromConfidence(result.confidence, maxSeverity),
         confidence: result.confidence,
-        message: `Route handler performs mutations without a recognized auth boundary`,
+        message: isWebhook
+          ? `Webhook endpoint processes payloads without signature verification`
+          : `Route handler performs mutations without a recognized auth boundary`,
         file: route.file,
         line: result.line,
         snippet: result.snippet,
         evidence: result.evidence,
         confidenceRationale: result.confidenceRationale,
-        remediation: [
-          "Add an auth check at the top of the handler (e.g., `const session = await auth()`)",
-          "Ensure middleware.ts protects this route segment",
-          "If using a custom auth wrapper, add it to hints.auth.functions in shipguard.config.json",
-        ],
-        tags: ["auth", "server"],
+        remediation: isWebhook
+          ? [
+              "Verify the provider's webhook signature before processing the payload",
+              "Examples: Stripe `constructEvent()`, GitHub HMAC, Google Pub/Sub JWT, Slack `verifyRequest()`",
+              "Use `crypto.timingSafeEqual()` for HMAC comparisons to prevent timing attacks",
+            ]
+          : [
+              "Add an auth check at the top of the handler (e.g., `const session = await auth()`)",
+              "Ensure middleware.ts protects this route segment",
+              "If using a custom auth wrapper, add it to hints.auth.functions in shipguard.config.json",
+            ],
+        tags: isWebhook ? ["auth", "webhook", "server"] : ["auth", "server"],
       });
     }
   }
