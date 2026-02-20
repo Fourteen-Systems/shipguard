@@ -1,6 +1,6 @@
 {
   "name": "@fourteensystems/shipguard",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "CI guardrail that blocks unprotected mutation routes in Next.js SaaS",
   "type": "module",
   "bin": {
