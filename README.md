@@ -108,7 +108,7 @@ Shipguard auto-detects your stack and adjusts detection accordingly:
 
 ### What It Skips
 
-- Webhook routes (any path containing `webhook`) — exempt from rate-limit
+- Webhook routes (any path containing `webhook`) — exempt from rate-limit (still checked for signature verification)
 - Cron routes (`/api/cron/*`) — exempt from rate-limit
 - Framework-managed routes (NextAuth catch-all, OAuth/SAML endpoints, callbacks, OG images) — exempt from rate-limit
 - `GET`-only route handlers — not mutation surfaces
