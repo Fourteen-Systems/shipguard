@@ -20,8 +20,6 @@ export function loadConfigIfExists(rootDir: string): ShipguardConfig | undefined
   const file = findConfigFile(rootDir);
   if (!file) return undefined;
 
-  // For v1, only support JSON config natively.
-  // TS/JS config requires a loader (tsx, jiti, etc.) — add in v1.1.
   if (file.endsWith(".json")) {
     try {
       return JSON.parse(readFileSync(file, "utf8")) as ShipguardConfig;
@@ -30,9 +28,7 @@ export function loadConfigIfExists(rootDir: string): ShipguardConfig | undefined
     }
   }
 
-  // For .ts/.js, do a basic regex extraction of the config object.
-  // This is a placeholder — replace with proper TS config loading.
-  // For now, return defaults if we detect a TS/JS config exists.
+  // TS/JS config requires a loader (tsx, jiti) — not yet supported.
   return undefined;
 }
 
