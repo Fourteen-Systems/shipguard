@@ -7,7 +7,7 @@ Shipguard statically analyzes your Next.js App Router codebase and flags mutatio
 ## Quick Start
 
 ```bash
-npx shipguard init
+npx @fourteensystems/shipguard init
 ```
 
 Detects your framework and dependencies, generates a config, and runs your first scan.
@@ -112,7 +112,7 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
-      - uses: shipguard/action@v1
+      - uses: Fourteen-Systems/shipguard-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -139,6 +139,7 @@ The action:
 | `max-new-high` | — | Max new high findings allowed |
 | `comment` | `true` | Post a PR comment with findings |
 | `annotations` | `true` | Add inline file annotations |
+| `working-directory` | — | Directory to scan (for monorepos) |
 
 ### Action Outputs
 
