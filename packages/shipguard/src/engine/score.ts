@@ -1,9 +1,15 @@
 import type { Finding, ScoringConfig, ScanResult } from "./types.js";
 import type { Severity, Confidence } from "../next/types.js";
 
+const DEFAULT_CONFIDENCE_WEIGHTS: Record<Confidence, number> = {
+  high: 1.0,
+  med: 0.25,
+  low: 0.1,
+};
+
 const DEFAULT_SCORING: ScoringConfig = {
   start: 100,
-  penalties: { critical: 25, high: 10, med: 3, low: 1 },
+  penalties: { critical: 15, high: 6, med: 3, low: 1 },
 };
 
 export function computeScore(
@@ -11,7 +17,8 @@ export function computeScore(
   config: ScoringConfig = DEFAULT_SCORING,
 ): number {
   let score = config.start;
-  const maxPerRule = config.maxPenaltyPerRule ?? config.start * 0.4;
+  const maxPerRule = config.maxPenaltyPerRule ?? config.start * 0.35;
+  const weights = config.confidenceWeights ?? DEFAULT_CONFIDENCE_WEIGHTS;
 
   // Group findings by ruleId
   const byRule = new Map<string, Finding[]>();
@@ -24,12 +31,14 @@ export function computeScore(
   for (const [, ruleFindings] of byRule) {
     let ruleDeduction = 0;
     for (const f of ruleFindings) {
-      ruleDeduction += config.penalties[f.severity] ?? 0;
+      const basePenalty = config.penalties[f.severity] ?? 0;
+      const weight = weights[f.confidence] ?? 1.0;
+      ruleDeduction += basePenalty * weight;
     }
     score -= Math.min(ruleDeduction, maxPerRule);
   }
 
-  return Math.max(0, score);
+  return Math.max(0, Math.round(score));
 }
 
 export function summarizeFindings(findings: Finding[]): Record<Severity, number> {

@@ -68,7 +68,9 @@ export interface ScanResult {
 export interface ScoringConfig {
   start: number;
   penalties: Record<Severity, number>;
-  /** Max deduction any single rule can impose. Defaults to start * 0.4 */
+  /** Multiplier applied to penalties based on finding confidence. Defaults to { high: 1.0, med: 0.25, low: 0.1 } */
+  confidenceWeights?: Record<Confidence, number>;
+  /** Max deduction any single rule can impose. Defaults to start * 0.35 */
   maxPenaltyPerRule?: number;
 }
 

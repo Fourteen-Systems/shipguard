@@ -33,50 +33,86 @@ describe("computeScore", () => {
     expect(computeScore([])).toBe(100);
   });
 
-  it("subtracts penalty for each finding", () => {
+  it("subtracts confidence-weighted penalty for each finding", () => {
+    // critical/high = 15 × 1.0 = 15 → score 85
     const findings = [makeFinding({ severity: "critical" })];
-    expect(computeScore(findings)).toBe(75);
+    expect(computeScore(findings)).toBe(85);
   });
 
-  it("applies correct penalties per severity", () => {
-    expect(computeScore([makeFinding({ severity: "critical" })])).toBe(75);
-    expect(computeScore([makeFinding({ severity: "high" })])).toBe(90);
-    expect(computeScore([makeFinding({ severity: "med" })])).toBe(97);
-    expect(computeScore([makeFinding({ severity: "low" })])).toBe(99);
+  it("applies correct penalties per severity (high confidence)", () => {
+    // All findings default to confidence: "high" (weight 1.0)
+    expect(computeScore([makeFinding({ severity: "critical" })])).toBe(85);  // 15 × 1.0
+    expect(computeScore([makeFinding({ severity: "high" })])).toBe(94);      // 6 × 1.0
+    expect(computeScore([makeFinding({ severity: "med" })])).toBe(97);       // 3 × 1.0
+    expect(computeScore([makeFinding({ severity: "low" })])).toBe(99);       // 1 × 1.0
+  });
+
+  it("weights penalties by confidence level", () => {
+    // Same severity, different confidence
+    const critHigh = computeScore([makeFinding({ severity: "critical", confidence: "high" })]);
+    const critMed = computeScore([makeFinding({ severity: "critical", confidence: "med" })]);
+    const critLow = computeScore([makeFinding({ severity: "critical", confidence: "low" })]);
+
+    // critical: 15 base. high=1.0→15, med=0.25→3.75, low=0.1→1.5
+    expect(critHigh).toBe(85);  // 100 - 15
+    expect(critMed).toBe(96);   // 100 - 3.75 → round(96.25)
+    expect(critLow).toBe(99);   // 100 - 1.5 → round(98.5)
+  });
+
+  it("med/med finding costs much less than high/high", () => {
+    // med/med = 3 × 0.25 = 0.75 per finding. 10 findings = 7.5 → score 93
+    const findings = Array.from({ length: 10 }, () =>
+      makeFinding({ severity: "med", confidence: "med" }),
+    );
+    expect(computeScore(findings)).toBe(93); // round(100 - 7.5)
+  });
+
+  it("low/low findings have minimal impact", () => {
+    // low/low = 1 × 0.1 = 0.1 per finding. 20 findings = 2.0 → score 98
+    const findings = Array.from({ length: 20 }, () =>
+      makeFinding({ severity: "low", confidence: "low" }),
+    );
+    expect(computeScore(findings)).toBe(98);
   });
 
   it("accumulates multiple findings from different rules", () => {
     const findings = [
-      makeFinding({ ruleId: "RULE-A", severity: "critical" }),
-      makeFinding({ ruleId: "RULE-B", severity: "critical" }),
-      makeFinding({ ruleId: "RULE-C", severity: "high" }),
+      makeFinding({ ruleId: "RULE-A", severity: "critical" }),  // 15
+      makeFinding({ ruleId: "RULE-B", severity: "critical" }),  // 15
+      makeFinding({ ruleId: "RULE-C", severity: "high" }),      // 6
     ];
-    expect(computeScore(findings)).toBe(40);
+    // All high confidence: 15 + 15 + 6 = 36 → score 64
+    expect(computeScore(findings)).toBe(64);
   });
 
-  it("caps deduction per rule at 40% of start", () => {
-    // 10 critical findings from same rule = 250 raw penalty, capped at 40
+  it("caps deduction per rule at 35% of start", () => {
+    // 10 critical/high from same rule = 150 raw penalty, capped at 35
     const findings = Array.from({ length: 10 }, () =>
       makeFinding({ severity: "critical" }),
     );
-    expect(computeScore(findings)).toBe(60);
+    expect(computeScore(findings)).toBe(65);
   });
 
   it("floors at 0 with enough different rules", () => {
+    // 3 rules × 3 critical/high findings each
     const findings = [
       makeFinding({ ruleId: "RULE-A", severity: "critical" }),
       makeFinding({ ruleId: "RULE-A", severity: "critical" }),
+      makeFinding({ ruleId: "RULE-A", severity: "critical" }),
       makeFinding({ ruleId: "RULE-B", severity: "critical" }),
       makeFinding({ ruleId: "RULE-B", severity: "critical" }),
+      makeFinding({ ruleId: "RULE-B", severity: "critical" }),
+      makeFinding({ ruleId: "RULE-C", severity: "critical" }),
       makeFinding({ ruleId: "RULE-C", severity: "critical" }),
       makeFinding({ ruleId: "RULE-C", severity: "critical" }),
     ];
-    // Each rule: 50 raw, capped at 40. 3 rules * 40 = 120 > 100 → floors at 0
+    // Each rule: 45 raw, capped at 35. 3 × 35 = 105 > 100 → floors at 0
     expect(computeScore(findings)).toBe(0);
   });
 
   it("uses custom scoring config", () => {
     const config = { start: 50, penalties: { critical: 10, high: 5, med: 2, low: 1 } };
+    // critical/high with default confidence weight 1.0 → 10 × 1.0 = 10 → 40
     expect(computeScore([makeFinding({ severity: "critical" })], config)).toBe(40);
   });
 
@@ -86,15 +122,24 @@ describe("computeScore", () => {
       penalties: { critical: 25, high: 10, med: 3, low: 1 },
       maxPenaltyPerRule: 25,
     };
-    // 5 critical from same rule = 125 raw, capped at 25
+    // 5 critical/high from same rule = 125 raw, capped at 25
     const findings = Array.from({ length: 5 }, () =>
       makeFinding({ severity: "critical" }),
     );
     expect(computeScore(findings, config)).toBe(75);
   });
 
+  it("respects custom confidenceWeights", () => {
+    const config = {
+      start: 100,
+      penalties: { critical: 20, high: 10, med: 5, low: 2 },
+      confidenceWeights: { high: 1.0, med: 0.5, low: 0.2 },
+    };
+    // critical/med = 20 × 0.5 = 10 → score 90
+    expect(computeScore([makeFinding({ severity: "critical", confidence: "med" })], config)).toBe(90);
+  });
+
   it("applies cap independently per rule", () => {
-    // Two rules, each with findings that exceed the cap
     const findings = [
       makeFinding({ ruleId: "AUTH", severity: "critical" }),
       makeFinding({ ruleId: "AUTH", severity: "critical" }),
@@ -103,8 +148,8 @@ describe("computeScore", () => {
       makeFinding({ ruleId: "RATE", severity: "critical" }),
       makeFinding({ ruleId: "RATE", severity: "critical" }),
     ];
-    // AUTH: 75 raw, capped at 40. RATE: 75 raw, capped at 40. Total: 80 → score 20
-    expect(computeScore(findings)).toBe(20);
+    // AUTH: 45 raw, capped at 35. RATE: 45 raw, capped at 35. Total: 70 → score 30
+    expect(computeScore(findings)).toBe(30);
   });
 });
 
