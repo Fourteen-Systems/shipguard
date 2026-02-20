@@ -58,6 +58,30 @@ The action posts a PR comment with score, findings, and detected stack. Adds inl
 - Updates the same comment on re-runs (no spam)
 - Fails the check if score or severity thresholds are violated
 
+### PR Comment
+
+The PR comment includes:
+
+- **Header** with score and PASS/WARN/FAIL status
+- **Detected stack** (auth provider, ORM, rate limiter, middleware)
+- **Severity summary** with color-coded counts (critical, high, med, low)
+- **Findings table** with severity icon, rule, file location, and human-readable message
+- **Evidence & confidence** (collapsible) — detailed evidence and confidence rationale per finding
+- **Suggested fixes** (collapsible) — deduplicated remediation steps
+- **Baseline delta** — score change and new/resolved finding counts when a baseline is provided
+
+When no auth provider is detected, the comment warns that public mutation endpoints will be treated as high risk.
+
+### Inline Annotations
+
+Findings are added as inline annotations on the PR diff:
+
+- **critical** findings → error annotations
+- **high** findings → warning annotations
+- **med/low** findings → notice annotations
+
+Disable with `annotations: false`.
+
 ## Monorepos
 
 For monorepos (Turborepo, pnpm workspaces), point to the Next.js app directory:

@@ -15,7 +15,7 @@ npx @fourteensystems/shipguard init
 Detects your framework and dependencies, generates a config, and runs your first scan.
 
 ```
-  Shipguard 0.1.0
+  Shipguard 0.2.3
   Detected: next-app-router · next-auth · prisma · upstash-ratelimit · middleware.ts
   Score: 85 PASS
 ```
@@ -118,6 +118,39 @@ Shipguard auto-detects your stack and adjusts detection accordingly:
 
 See [PATTERNS.md](../../PATTERNS.md) for full detection logic.
 
+## Scoring
+
+Shipguard computes a 0-100 security score. Each finding deducts points based on severity **and** confidence:
+
+| | high confidence | med confidence | low confidence |
+|---|---|---|---|
+| **critical** | -15 | -3.75 | -1.5 |
+| **high** | -6 | -1.5 | -0.6 |
+| **med** | -3 | -0.75 | -0.3 |
+| **low** | -1 | -0.25 | -0.1 |
+
+A single rule can deduct at most 35 points (preventing one noisy rule from tanking the score).
+
+| Score | Status | Meaning |
+|-------|--------|---------|
+| 80-100 | PASS | Healthy — no critical gaps |
+| 50-79 | WARN | Issues to address |
+| 0-49 | FAIL | Critical gaps in protection |
+
+## Confidence Levels
+
+Every finding has a confidence level:
+
+- **high** — strong evidence (e.g., `publicProcedure.mutation()` with `prisma.create`)
+- **med** — likely but uncertain (e.g., unrecognized procedure type)
+- **low** — possible issue, may be false positive
+
+Use `--min-confidence` in CI to control noise:
+
+```bash
+shipguard ci --min-confidence high
+```
+
 ## Monorepos
 
 Shipguard must be run from the Next.js app directory (the one with `package.json` and `app/`). In a monorepo like Turborepo or pnpm workspaces:
@@ -133,6 +166,36 @@ Shipguard automatically reads dependencies from both the app's `package.json` an
 Most teams do not need to configure Shipguard. Run `shipguard init` and commit the generated config.
 
 With wrapper introspection, Shipguard resolves and analyzes your custom wrappers automatically. Hints are only needed for edge cases where the wrapper can't be resolved (e.g., auth handled by an API gateway, rate limiting at the CDN edge).
+
+For advanced use cases, create `shipguard.config.json`:
+
+```json
+{
+  "framework": "next-app-router",
+  "include": ["app/**", "src/**"],
+  "exclude": ["**/*.test.*", "**/*.spec.*"],
+  "ci": {
+    "failOn": "critical",
+    "minConfidence": "high",
+    "minScore": 70,
+    "maxNewCritical": 0
+  },
+  "hints": {
+    "auth": {
+      "functions": ["auth", "getServerSession", "currentUser"],
+      "middlewareFiles": ["middleware.ts"],
+      "allowlistPaths": ["app/api/public/**"]
+    },
+    "rateLimit": {
+      "wrappers": ["rateLimit", "withRateLimit"],
+      "allowlistPaths": ["app/api/webhooks/**"]
+    },
+    "tenancy": {
+      "orgFieldNames": ["orgId", "tenantId", "workspaceId"]
+    }
+  }
+}
+```
 
 ### Hints
 

@@ -59,7 +59,7 @@ shipguard explain AUTH-BOUNDARY-MISSING
 | Rule | Severity | What it catches |
 |------|----------|----------------|
 | AUTH-BOUNDARY-MISSING | critical | Mutation endpoints without auth checks |
-| RATE-LIMIT-MISSING | critical | API routes without rate limiting (auth-aware severity) |
+| RATE-LIMIT-MISSING | critical* | API routes without rate limiting (*auth-aware severity — see below) |
 | TENANCY-SCOPE-MISSING | critical | Prisma queries without tenant scoping |
 | WRAPPER-UNRECOGNIZED | high | HOF wrappers that couldn't be verified for auth/rate-limit enforcement |
 
@@ -114,7 +114,22 @@ Shipguard auto-detects your stack and adjusts detection accordingly:
 - `GET`-only route handlers — not mutation surfaces
 - Routes covered by `middleware.ts` auth — no double-flagging
 - Routes wrapped by verified HOF wrappers (`withWorkspace(handler)` where auth+RL enforcement is proven)
-- Authenticated routes get lower rate-limit severity (abuse requires stolen credentials)
+- Authenticated routes get lower rate-limit severity (see below)
+
+### Auth-Aware Rate-Limit Severity
+
+RATE-LIMIT-MISSING severity is modulated by auth status — unauthenticated endpoints are higher risk since anyone can abuse them:
+
+| Auth status | Route type | Severity |
+|-------------|-----------|----------|
+| No auth | Mutation | critical |
+| No auth | Body parsing | high |
+| Has auth | Mutation | med |
+| Has auth | Body parsing | low |
+
+### No Auth Provider Warning
+
+When no auth provider is detected in `package.json` and no `middleware.ts` is found, Shipguard treats all public mutation endpoints as high risk and displays a warning in the CLI report and PR comment.
 
 See [PATTERNS.md](PATTERNS.md) for full detection logic.
 
@@ -147,9 +162,10 @@ jobs:
 ```
 
 The action:
-- Comments on PRs with findings, score, and detected stack
-- Adds inline annotations on flagged files
+- Comments on PRs with score, severity breakdown, findings with human-readable messages, and collapsible evidence/remediation sections
+- Adds inline annotations (error/warning/notice) on flagged files
 - Shows score delta when a baseline is provided
+- Warns when no auth provider is detected
 - Updates the same comment on re-runs (no spam)
 
 ### Action Inputs
@@ -254,7 +270,7 @@ shipguard ci --min-confidence high
 
 Shipguard computes a 0-100 security score. Higher is better.
 
-Each finding deducts points based on severity **and** confidence:
+Each finding deducts points based on severity **and** confidence. Base penalties are weighted by confidence (high=1.0, med=0.25, low=0.1):
 
 | | high confidence | med confidence | low confidence |
 |---|---|---|---|
@@ -263,7 +279,7 @@ Each finding deducts points based on severity **and** confidence:
 | **med** | -3 | -0.75 | -0.3 |
 | **low** | -1 | -0.25 | -0.1 |
 
-A single rule can deduct at most 35 points (preventing one noisy rule from tanking the score).
+A single rule can deduct at most 35 points (preventing one noisy rule from tanking the score). This means even if you have many rate-limit findings, the score won't drop below 65 from that rule alone.
 
 | Score | Status | Meaning |
 |-------|--------|---------|
