@@ -3,7 +3,7 @@ import pc from "picocolors";
 import { runScan } from "../../engine/run.js";
 import { formatPretty, formatJson } from "../../engine/report.js";
 import { formatSarif } from "../../engine/sarif.js";
-import { confidenceLevel, parseConfidence } from "../../engine/score.js";
+import { computeScore, summarizeFindings, confidenceLevel, parseConfidence } from "../../engine/score.js";
 import type { Severity } from "../../next/types.js";
 import type { ShipguardConfig } from "../../engine/types.js";
 
@@ -37,12 +37,15 @@ export async function cmdScan(opts: ScanOptions): Promise<void> {
 
     const result = await runScan({ rootDir, configOverrides, additionalExclude });
 
-    // Filter by confidence if specified
+    // Filter by confidence if specified, recalculate score and summary
     if (opts.minConfidence) {
       const minConf = parseConfidence(opts.minConfidence);
       result.findings = result.findings.filter(
         (f) => confidenceLevel(f.confidence) >= confidenceLevel(minConf),
       );
+      result.score = computeScore(result.findings);
+      const counts = summarizeFindings(result.findings);
+      result.summary = { total: result.findings.length, ...counts, waived: result.summary.waived };
     }
 
     let output: string;

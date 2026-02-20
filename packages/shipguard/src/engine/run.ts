@@ -48,10 +48,9 @@ export async function runScan(opts: RunOptions): Promise<ScanResult> {
       ...userConfig?.ci,
       ...opts.configOverrides?.ci,
     },
-    rules: {
+    rules: opts.configOverrides?.rules ?? {
       ...DEFAULT_CONFIG.rules,
       ...userConfig?.rules,
-      ...opts.configOverrides?.rules,
     },
   };
 
