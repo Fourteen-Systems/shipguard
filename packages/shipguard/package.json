@@ -32,17 +32,24 @@
     "ci"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fourteen-Systems/shipguard.git",
+    "directory": "packages/shipguard"
+  },
+  "homepage": "https://github.com/Fourteen-Systems/shipguard",
+  "bugs": "https://github.com/Fourteen-Systems/shipguard/issues",
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
     "commander": "^13.1.0",
     "fast-glob": "^3.3.3",
-    "picocolors": "^1.1.1",
-    "typescript": "^5.7.0"
+    "picocolors": "^1.1.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }
 }
