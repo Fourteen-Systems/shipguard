@@ -91,8 +91,6 @@ Shipguard auto-detects your stack and adjusts detection accordingly:
 - Routes covered by `middleware.ts` auth — no double-flagging
 - HOF-wrapped handlers (`withAuth(handler)`) — detected as auth boundary
 
-See [PATTERNS.md](PATTERNS.md) for full detection logic.
-
 ## GitHub Action
 
 ```yaml
