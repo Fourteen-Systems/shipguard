@@ -32,43 +32,32 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
     if (result) {
       const pathname = route.pathname ?? route.file;
       const isWebhook = /webhook/i.test(pathname);
-      const isCallback = isCallbackPath(pathname);
       findings.push({
         ruleId: RULE_ID,
         severity: severityFromConfidence(result.confidence, maxSeverity),
         confidence: result.confidence,
-        message: isCallback
-          ? `Callback endpoint performs mutations without verified framework validation`
-          : isWebhook
-            ? `Webhook endpoint processes payloads without signature verification`
-            : `Route handler performs mutations without a recognized auth boundary`,
+        message: isWebhook
+          ? `Webhook endpoint processes payloads without signature verification`
+          : `Route handler performs mutations without a recognized auth boundary`,
         file: route.file,
         line: result.line,
         snippet: result.snippet,
         evidence: result.evidence,
         confidenceRationale: result.confidenceRationale,
-        remediation: isCallback
+        remediation: isWebhook
           ? [
-              "Callback endpoints are typically public but should rely on framework validation (state/PKCE)",
-              "If using NextAuth/Auth.js, Clerk, or similar — the framework handles this; add it to hints.auth.functions",
-              "Shipguard couldn't verify that framework validation is in place",
+              "Verify the provider's webhook signature before processing the payload",
+              "Examples: Stripe `constructEvent()`, GitHub HMAC, Google Pub/Sub JWT, Slack `verifyRequest()`",
+              "Use `crypto.timingSafeEqual()` for HMAC comparisons to prevent timing attacks",
             ]
-          : isWebhook
-            ? [
-                "Verify the provider's webhook signature before processing the payload",
-                "Examples: Stripe `constructEvent()`, GitHub HMAC, Google Pub/Sub JWT, Slack `verifyRequest()`",
-                "Use `crypto.timingSafeEqual()` for HMAC comparisons to prevent timing attacks",
-              ]
-            : [
-                "Add an auth check at the top of the handler (e.g., `const session = await auth()`)",
-                "Ensure middleware.ts protects this route segment",
-                "If using a custom auth wrapper, add it to hints.auth.functions in shipguard.config.json",
-              ],
-        tags: isCallback
-          ? ["auth", "callback", "server"]
-          : isWebhook
-            ? ["auth", "webhook", "server"]
-            : ["auth", "server"],
+          : [
+              "Add an auth check at the top of the handler (e.g., `const session = await auth()`)",
+              "Ensure middleware.ts protects this route segment",
+              "If using a custom auth wrapper, add it to hints.auth.functions in shipguard.config.json",
+            ],
+        tags: isWebhook
+          ? ["auth", "webhook", "server"]
+          : ["auth", "server"],
       });
     }
   }
@@ -171,12 +160,11 @@ function checkRoute(
     evidence.push("possible custom auth wrapper detected (not in hints)");
   }
 
-  // Downgrade callback/OAuth/OIDC paths — public by protocol design, but still flag them
+  // Exempt callback/OAuth/OIDC/SSO/SCIM paths — public by protocol design.
+  // The OAuth flow itself (state/PKCE/nonce) IS the auth boundary.
   const pathname = route.pathname ?? route.file;
   if (isCallbackPath(pathname)) {
-    confidence = "med";
-    confidenceRationale = "Medium: callback/OAuth/OIDC endpoint — typically public by protocol design";
-    evidence.push("callback/OAuth/OIDC path — typically relies on framework state/PKCE validation");
+    return null;
   }
 
   // Find the line of the first mutation evidence for precise reporting
@@ -283,6 +271,9 @@ function hasBuiltInAuthPattern(src: string): boolean {
   // --- Auth-guard return: header/token/secret check → early 401/403 before mutation ---
   if (hasAuthGuardReturn(src)) return true;
 
+  // --- Inline auth guard: common auth function name + null check + early return/throw ---
+  if (hasInlineAuthGuard(src)) return true;
+
   return false;
 }
 
@@ -321,25 +312,28 @@ function hasWebhookTokenVerification(src: string): boolean {
     || /request\.json\s*\(/.test(src)
     || /req\.json\s*\(/.test(src);
   if (!readsRequest) return false;
-  return /status:\s*40[13]\b/.test(src) || /\(\s*40[13]\s*\)/.test(src);
+  // Accept explicit 401/403 or any throw (many apps throw custom errors)
+  return /status:\s*40[13]\b/.test(src) || /\(\s*40[13]\s*\)/.test(src) || /\bthrow\s+new\b/.test(src);
 }
 
 /**
- * Detect DB-backed API token lookup with early deny.
+ * Detect DB-backed token lookup with early deny.
  *
- * Pattern: reads token from header → looks it up in DB → returns 401/403 if missing.
- * Common in B2B SaaS for API key authentication.
+ * Pattern: reads token from request (header, body, params) → looks it up in DB → returns 401/403 if missing.
+ * Common in B2B SaaS for API key authentication, password reset flows, etc.
  *
  * Requires all three:
- * 1. Reads from request headers
+ * 1. Reads from request (headers, searchParams, body, or route params)
  * 2. DB lookup on a token/key-like table (prisma.apiToken, prisma.apiKey, etc.)
  * 3. Returns 401 or 403
  */
 function hasDbTokenLookup(src: string): boolean {
-  if (!/headers\.get\s*\(/.test(src)) return false;
-  const hasTokenLookup = /\.(apiToken|apiKey|token|accessToken|api_key|access_token)\.(findUnique|findFirst|findMany)\s*\(/i.test(src);
+  // DB lookup on a token/key-like table
+  const hasTokenLookup = /\.(apiToken|apiKey|token|accessToken|api_key|access_token|passwordResetToken|verificationToken|resetToken)\.(findUnique|findFirst|findMany)\s*\(/i.test(src);
   if (!hasTokenLookup) return false;
-  return /status:\s*40[13]\b/.test(src) || /\(\s*40[13]\s*\)/.test(src);
+  // Accept explicit 401/403, or any throw (custom error classes like DubApiError)
+  // Route handlers always read from the request, so token lookup + deny is sufficient
+  return /status:\s*40[13]\b/.test(src) || /\(\s*40[13]\s*\)/.test(src) || /\bthrow\s+new\b/.test(src);
 }
 
 /**
@@ -385,6 +379,44 @@ function hasAuthGuardReturn(src: string): boolean {
     const context = lines.slice(contextStart, i + 1).join("\n");
 
     if (hasAuthSignalInContext(context)) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Detect inline auth guards using common auth function name patterns + null check.
+ *
+ * Matches function calls like getCurrentUser(), getUser(), requireSession(), checkAuth(), etc.
+ * followed by a null/falsy check within 15 lines, with an early return/throw in the guard body.
+ *
+ * This catches auth patterns that aren't in hints (custom function names).
+ */
+const AUTH_FN_PATTERN = /\b(?:get|require|check|validate|verify|ensure|load|fetch)\w*(?:User|Session|Auth|Account|Identity|Token)\s*\(/i;
+
+function hasInlineAuthGuard(src: string): boolean {
+  if (!AUTH_FN_PATTERN.test(src)) return false;
+
+  const lines = src.split("\n");
+
+  // Find lines with auth function calls
+  for (let i = 0; i < lines.length; i++) {
+    if (!AUTH_FN_PATTERN.test(lines[i])) continue;
+
+    // Look for a null/falsy check within 15 lines after the call
+    const searchEnd = Math.min(lines.length, i + 15);
+    for (let j = i; j < searchEnd; j++) {
+      const line = lines[j];
+      // Check for if (!variable) or if (variable == null) patterns
+      if (!/if\s*\(\s*!|\s*==\s*null|\s*===\s*null/.test(line)) continue;
+
+      // Check subsequent lines (the guard body) for throw/return/redirect
+      const guardEnd = Math.min(lines.length, j + 5);
+      const guardBody = lines.slice(j, guardEnd).join("\n");
+      if (/\bthrow\b|\breturn\b|\bredirect\b|NextResponse\.redirect|NextResponse\.json/.test(guardBody)) {
+        return true;
+      }
+    }
   }
 
   return false;
@@ -437,11 +469,11 @@ function hasAuthSignalInContext(context: string): boolean {
  * framework validation (state/PKCE) but are not auth-boundary issues.
  */
 function isCallbackPath(pathname: string): boolean {
-  return /\/(callback|oauth|oidc)(\/|$)/i.test(pathname);
+  return /\/(callback|oauth|oidc|sso|scim)(\/|$)/i.test(pathname);
 }
 
 function hasPossibleCustomAuth(src: string): boolean {
-  if (/\b(verify|check|require|validate|ensure|guard|protect)\w*(Token|Auth|Session|User|Access|Secret|Signature|Permission)\s*\(/i.test(src)) {
+  if (/\b(verify|check|require|validate|ensure|guard|protect|get|fetch|load)\w*(Token|Auth|Session|User|Access|Secret|Signature|Permission)\s*\(/i.test(src)) {
     return true;
   }
 

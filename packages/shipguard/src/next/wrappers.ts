@@ -349,6 +349,13 @@ function analyzeNodeForEvidence(
     }
   }
 
+  // Rate limit: .limit() method calls on rate-limiter-like objects (Upstash pattern)
+  // Catches wrappers importing Upstash via local re-export modules
+  if (/(?:ratelimit|rateLimit|rl|limiter|rateLimiter)\.limit\s*\(/i.test(src)) {
+    evidence.rateLimitCallPresent = true;
+    evidence.rateLimitDetails.push("calls .limit() method");
+  }
+
   // Check for enforcement via AST (don't overwrite if already proven by built-in patterns)
   if (evidence.authCallPresent && !evidence.authEnforced) {
     evidence.authEnforced = detectEnforcement(node, authSet, "auth");
@@ -419,6 +426,10 @@ function detectEnforcement(
     }
     // Pattern: .limit( followed by conditional throw/return
     if (/\.limit\s*\([\s\S]{0,200}(?:throw|return\s+(?:new\s+)?Response|429)/m.test(src)) {
+      return true;
+    }
+    // Pattern: ratelimit.limit() + any throw within 300 chars (looser — catches custom error classes)
+    if (/(?:ratelimit|rateLimit|rl|limiter)\.limit\s*\([\s\S]{0,300}\bthrow\b/i.test(src)) {
       return true;
     }
   }

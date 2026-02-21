@@ -30,6 +30,18 @@ const WEBHOOK_PATH_PATTERNS = [
 ];
 
 /**
+ * Login/signin paths — prime brute-force targets.
+ * Missing rate limiting on these is always critical.
+ */
+const LOGIN_PATH_PATTERNS = [
+  /\/login(\/|$)/i,
+  /\/signin(\/|$)/i,
+  /\/sign-in(\/|$)/i,
+  /\/auth\/login(\/|$)/i,
+  /\/auth\/signin(\/|$)/i,
+];
+
+/**
  * Framework-managed routes where rate limiting is handled by the framework
  * or is inappropriate (auth protocol flows, external callbacks, OG images).
  */
@@ -65,10 +77,26 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
     if (result) {
       const isAuthed = route.protection?.auth.satisfied ?? false;
 
+      // Severity bumps for high-value targets
+      let severity = result.severity;
+      let { confidence, confidenceRationale } = result;
+
+      if (isLoginPath(route.pathname)) {
+        severity = "critical";
+        confidence = "high";
+        confidenceRationale = "High: login/signin endpoint without rate limiting — prime brute-force target";
+        result.evidence.push("login/signin endpoint — brute-force risk");
+      } else if (hasFormDataUpload(route, index) && !isAuthed) {
+        severity = "critical";
+        confidence = "high";
+        confidenceRationale = "High: public file upload endpoint without rate limiting — storage abuse risk";
+        result.evidence.push("public formData upload — storage abuse risk");
+      }
+
       findings.push({
         ruleId: RULE_ID,
-        severity: capSeverity(result.severity, maxSeverity),
-        confidence: result.confidence,
+        severity: capSeverity(severity, maxSeverity),
+        confidence,
         message: isAuthed
           ? `Authenticated API route has no recognized rate limiting`
           : `Public API route has no recognized rate limiting`,
@@ -76,7 +104,7 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
         line: result.line,
         snippet: result.snippet,
         evidence: result.evidence,
-        confidenceRationale: result.confidenceRationale,
+        confidenceRationale,
         remediation: isAuthed
           ? [
               "Consider adding rate limiting as defense-in-depth",
@@ -236,6 +264,9 @@ function hasRateLimitCall(src: string, wrappers: string[]): boolean {
   if (/@arcjet\/next/.test(src)) return true;
   if (/@unkey\/ratelimit/.test(src)) return true;
 
+  // Upstash-style: ratelimit.limit(identifier) in route source
+  if (/(?:ratelimit|rateLimit|rl|limiter|rateLimiter)\.limit\s*\(/i.test(src)) return true;
+
   return false;
 }
 
@@ -269,12 +300,25 @@ function isFrameworkManaged(pathname?: string): boolean {
 }
 
 function hasBodyParsing(src: string): boolean {
-  return /request\.json\s*\(|request\.formData\s*\(|req\.body/.test(src);
+  return /request\.json\s*\(|request\.formData\s*\(|request\.body\b|req\.body/.test(src);
 }
 
 function isExemptPath(pathname?: string): boolean {
   if (!pathname) return false;
   return EXEMPT_PATH_PATTERNS.some((p) => p.test(pathname));
+}
+
+function isLoginPath(pathname?: string): boolean {
+  if (!pathname) return false;
+  return LOGIN_PATH_PATTERNS.some((p) => p.test(pathname));
+}
+
+function hasFormDataUpload(route: NextRoute, index: NextIndex): boolean {
+  const src = readSource(index.rootDir, route.file);
+  if (!src) return false;
+  // FormData upload or raw body stream to blob/object storage
+  return /request\.formData\s*\(|req\.formData\s*\(/.test(src)
+    || (/request\.body\b/.test(src) && /\bput\s*\(/.test(src));
 }
 
 function readSource(rootDir: string, file: string): string | null {

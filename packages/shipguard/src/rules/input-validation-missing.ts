@@ -119,11 +119,19 @@ function checkEndpoint(
 
   // Confidence: high if clear DB write + body read + no validation
   // med if only general mutation evidence
-  const confidence: Confidence = endpoint.signals.hasDbWriteEvidence ? "high" : "med";
+  let confidence: Confidence = endpoint.signals.hasDbWriteEvidence ? "high" : "med";
 
-  const rationale = confidence === "high"
+  let rationale = confidence === "high"
     ? "Direct DB write with unvalidated user input — no schema parsing detected"
     : "Mutation endpoint with unvalidated input — no schema parsing detected";
+
+  // Webhook-verified routes: signature verification provides some payload integrity
+  // Downgrade — still flag because signatures don't validate schema structure
+  if (hasWebhookSignature(src)) {
+    confidence = "med";
+    rationale = "Webhook signature verified but no schema validation — payload structure not enforced";
+    evidence.push("webhook signature verification present (provides integrity, not schema validation)");
+  }
 
   // Find the line of the first body read
   const line = findInputReadLine(src);
@@ -232,6 +240,20 @@ function stripCommentLines(src: string): string {
     if (trimmed.startsWith("//")) return false;
     return true;
   }).join("\n");
+}
+
+/**
+ * Detect webhook signature verification patterns.
+ * Presence indicates payload integrity is verified (but not schema structure).
+ */
+function hasWebhookSignature(src: string): boolean {
+  if (/constructEvent\s*\(/.test(src)) return true;
+  if (/createHmac\s*\(/.test(src) && /signature/i.test(src)) return true;
+  if (/timingSafeEqual\s*\(/.test(src)) return true;
+  if (/verifySignature\s*\(/.test(src)) return true;
+  if (/verifyWebhook\s*\(/i.test(src)) return true;
+  if (/\.verify\s*\(/.test(src) && /webhook/i.test(src)) return true;
+  return false;
 }
 
 function findInputReadLine(src: string): number | undefined {
