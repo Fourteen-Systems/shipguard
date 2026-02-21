@@ -1,6 +1,6 @@
 # Shipguard Action
 
-GitHub Action that scans your Next.js App Router codebase for unprotected mutation routes and comments on PRs with findings. Resolves HOF wrapper implementations, verifies auth/rate-limit enforcement via TypeScript AST, and groups unverified wrappers into single findings.
+GitHub Action that scans your Next.js App Router codebase for unprotected routes, missing rate limiting, and SSRF surfaces. Comments on PRs with findings, resolves HOF wrapper implementations, verifies auth/rate-limit enforcement via TypeScript AST, and groups unverified wrappers into single findings.
 
 ## Usage
 
@@ -57,6 +57,13 @@ The action posts a PR comment with score, findings, and detected stack. Adds inl
 - Shows score delta when a baseline is provided
 - Updates the same comment on re-runs (no spam)
 - Fails the check if score or severity thresholds are violated
+
+### What's New in v1.2
+
+- **Auth-aware RL suppression**: routes with strongly enforced auth no longer produce rate-limit findings
+- **General rate limit detection**: recognizes any function with `rateLimit`/`ratelimit`/`rate_limit` in the name
+- **`shipguard:public-intent`**: annotation for intentionally public routes — suppresses auth findings, floors RL severity at HIGH, escalates to CRITICAL for SSRF surfaces
+- **Improved auth detection**: catches `updateSession()` and similar patterns
 
 ### PR Comment
 

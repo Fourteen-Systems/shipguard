@@ -1,6 +1,6 @@
 # Shipguard
 
-CI guardrail that blocks unprotected mutation routes in Next.js SaaS.
+Static analysis guardrail for Next.js SaaS — flags unprotected routes, missing rate limiting, and SSRF surfaces.
 
 Shipguard statically analyzes your Next.js App Router codebase and flags mutation endpoints missing auth boundaries, rate limiting, or tenant scoping. It understands your stack — Auth.js, Clerk, Supabase, tRPC, Prisma — resolves your wrapper implementations, and stays quiet when protections are in place.
 
@@ -15,7 +15,7 @@ npx @fourteensystems/shipguard init
 Detects your framework and dependencies, generates a config, and runs your first scan.
 
 ```
-  Shipguard 0.2.7
+  Shipguard 0.3.0
   Detected: next-app-router · next-auth · prisma · upstash-ratelimit · middleware.ts
   Score: 85 PASS
 ```
@@ -59,10 +59,34 @@ shipguard explain AUTH-BOUNDARY-MISSING
 | Rule | Severity | What it catches |
 |------|----------|----------------|
 | AUTH-BOUNDARY-MISSING | critical | Mutation endpoints without auth checks |
-| RATE-LIMIT-MISSING | critical | API routes without rate limiting (auth-aware severity) |
+| RATE-LIMIT-MISSING | critical | Public API routes without rate limiting |
 | TENANCY-SCOPE-MISSING | critical | Prisma queries without tenant scoping |
 | INPUT-VALIDATION-MISSING | med | Mutation endpoints accepting input without schema validation |
 | WRAPPER-UNRECOGNIZED | high | HOF wrappers that couldn't be verified for auth/rate-limit enforcement |
+| PUBLIC-INTENT-MISSING-REASON | med | `shipguard:public-intent` directives missing a required reason |
+
+### Auth-Aware Rate Limiting
+
+Shipguard suppresses RATE-LIMIT-MISSING findings on routes with **strongly enforced auth** — where the auth call is proven to throw/return on failure (e.g., `if (!session) throw new Error(401)`). Routes with weak or optional auth (call present but no enforcement) are still flagged.
+
+This means authenticated routes behind `withWorkspace()`, `protectedProcedure`, or `requireAuth()` with verified enforcement won't produce rate-limit noise. Public routes and weakly-authed routes still get full RL findings.
+
+### `shipguard:public-intent` Annotation
+
+For routes that are **intentionally public** (no auth by design), add a directive:
+
+```ts
+// shipguard:public-intent reason="Public URL health checker"
+export async function GET(request: Request) { ... }
+```
+
+This tells Shipguard:
+- **AUTH-BOUNDARY-MISSING** is suppressed (auth absence is intentional)
+- **RATE-LIMIT-MISSING** severity is floored at HIGH (public by design = rate limiting mandatory)
+- If the route performs outbound fetch with user-influenced URLs, severity escalates to CRITICAL with `ssrf-surface` tag
+- **INPUT-VALIDATION-MISSING** severity is bumped (public + unvalidated = higher exposure)
+
+Missing or empty `reason` produces a `PUBLIC-INTENT-MISSING-REASON` finding and the directive is ignored.
 
 ### Wrapper Introspection
 
@@ -121,9 +145,18 @@ Shipguard auto-detects your stack and adjusts detection accordingly:
 - Routes wrapped by verified HOF wrappers (`withWorkspace(handler)` where auth+RL enforcement is proven)
 - DB-backed token lookups with deny on failure (password reset tokens, API keys)
 - Inline auth guards (`getCurrentUser()` + null check + throw/return)
-- Authenticated routes get lower rate-limit severity (abuse requires stolen credentials)
+- **Strongly authenticated routes** — RL findings suppressed when auth is enforced (proven throw/return on failure)
 - Login/signin endpoints get critical severity for missing rate limiting (brute-force risk)
 - Public file upload endpoints get critical severity for missing rate limiting (storage abuse risk)
+
+### Rate Limit Detection
+
+Shipguard recognizes rate limiting through multiple patterns:
+
+- **Package imports**: `@upstash/ratelimit`, `rate-limiter-flexible`, `@arcjet/next`, `@unkey/ratelimit`
+- **Method calls**: `ratelimit.limit()`, `rl.limit()`, `limiter.limit()`, `rateLimiter.limit()`
+- **General function pattern**: any function with `rateLimit`, `ratelimit`, or `rate_limit` in the name — catches `ratelimitOrThrow()`, `checkRateLimit()`, `rateLimitMiddleware()`, etc.
+- **Wrapper introspection**: follows imports and verifies RL calls in wrapper bodies
 
 See [PATTERNS.md](../../PATTERNS.md) for full detection logic.
 

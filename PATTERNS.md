@@ -49,14 +49,14 @@ Server actions are discovered by scanning `.ts`/`.tsx` files under the app direc
 - Supabase auth: `.auth.getUser()` / `.auth.getSession()` (call-based, not import-based)
 
 **Inline auth guard detection (clears the route, no hints needed):**
-- Common auth function name patterns: `get*User`, `require*Session`, `check*Auth`, `verify*Token`, `fetch*Account`, etc.
+- Common auth function name patterns: `get*User`, `require*Session`, `check*Auth`, `verify*Token`, `fetch*Account`, `update*Session`, etc.
 - Combined with a null/falsy check within 15 lines (`if (!user)`, `if (session == null)`)
 - Guard body must contain `throw`, `return`, or `redirect`
 - DB-backed token lookup: Prisma queries on token/key tables (`apiToken`, `passwordResetToken`, etc.) with deny on failure (401/403 or `throw new`)
 - Webhook token verification: `timingSafeEqual()` with request data and deny on failure (401/403 or `throw new`)
 
 **Custom auth heuristic (downgrades confidence to medium):**
-- Verb patterns: `verify*`, `check*`, `require*`, `validate*`, `ensure*`, `guard*`, `protect*`, `get*`, `fetch*`, `load*`
+- Verb patterns: `verify*`, `check*`, `require*`, `validate*`, `ensure*`, `guard*`, `protect*`, `get*`, `fetch*`, `load*`, `update*`
 - Combined with: `Token`, `Auth`, `Session`, `User`, `Access`, `Secret`, `Signature`, `Permission`
 - Direct `Authorization` header reading
 
@@ -104,7 +104,7 @@ Server actions are discovered by scanning `.ts`/`.tsx` files under the app direc
 
 ### What Shipguard detects (v1)
 
-Flags API route handlers under `app/api/` and tRPC public mutation procedures that have no recognized rate limiting. Severity is modulated by auth status — authenticated routes get lower severity since abuse requires stolen credentials.
+Flags API route handlers under `app/api/` and tRPC mutation procedures that have no recognized rate limiting. Routes with strongly enforced auth (proven throw/return on failure) are suppressed — only public and weakly-authed routes are flagged.
 
 ### Recognized rate limit patterns
 
@@ -115,6 +115,7 @@ Flags API route handlers under `app/api/` and tRPC public mutation procedures th
 - `@unkey/ratelimit` (import detection)
 - Any wrapper name in `hints.rateLimit.wrappers` (call detection)
 - `ratelimit.limit()`, `rl.limit()`, `limiter.limit()` (Upstash-style method calls)
+- General function name pattern: any function with `rateLimit`, `ratelimit`, or `rate_limit` in the name — catches `ratelimitOrThrow()`, `checkRateLimit()`, `rateLimitMiddleware()`, etc.
 - Middleware-level rate limiting (heuristic on middleware.ts content)
 
 **Wrapper introspection (automatic):**
@@ -122,26 +123,35 @@ Flags API route handlers under `app/api/` and tRPC public mutation procedures th
 - Wrapper body analyzed for rate-limit calls (`rateLimit()`, `ratelimit.limit()`, `aj.protect()`)
 - Enforcement verified: checks for `if (!success)` or destructured `{ success }` with throw/return 429
 - Known RL package imports (`@upstash/ratelimit`, `@arcjet/next`, `@unkey/ratelimit`) detected at file level
+- General function name pattern also applied inside wrapper bodies
 
 **Auto-detected from dependencies:**
 - Upstash: `Ratelimit`, `ratelimit`
 - Arcjet: `aj.protect`, `fixedWindow`, `slidingWindow`, `tokenBucket`
 - Unkey: `withUnkey`, `verifyKey`
 
-### Auth-aware severity
+### Auth-aware suppression
 
-Severity is modulated by whether the route has a recognized auth boundary. Authenticated routes are lower risk because abuse requires stolen credentials.
+Routes with **strongly enforced auth** are fully suppressed from RATE-LIMIT-MISSING. "Strongly enforced" means `auth.satisfied && auth.enforced` — the auth call is proven to throw or return on failure (e.g., `if (!session) throw new Error(401)`).
+
+Routes with weak or optional auth (call present but no proven enforcement) are treated as unauthenticated and still flagged.
 
 | Auth status | Route type | Severity | Confidence |
 |-------------|-----------|----------|------------|
-| No auth | Mutation | **critical** | high |
-| No auth | Body parsing | **high** | high |
-| No auth | GET-only | **med** | med |
-| Has auth | Mutation | **med** | med |
-| Has auth | Body parsing | **low** | low |
-| Has auth | GET-only | **low** | low |
+| No auth / weak auth | Mutation | **critical** | high |
+| No auth / weak auth | Body parsing | **high** | high |
+| No auth / weak auth | GET-only | **med** | med |
+| **Strong auth** | **Any** | **suppressed** | — |
 | Any | Login/signin path | **critical** | high |
 | No auth | File upload (formData/body+put) | **critical** | high |
+
+### `shipguard:public-intent` interaction
+
+Routes annotated with `// shipguard:public-intent reason="..."`:
+- RL severity is **floored at HIGH** (public by design = rate limiting mandatory)
+- If the route performs outbound fetch with user-influenced URLs, severity escalates to **CRITICAL** with `ssrf-surface` and `outbound-fetch` tags
+- Evidence includes the developer's stated reason
+- Hardcoded fetch URLs (e.g., `fetch("https://api.example.com/health")`) do NOT trigger SSRF escalation
 
 ### Automatic exemptions
 
@@ -257,6 +267,64 @@ Flags Prisma calls on tenant-owned models that lack a tenant field in the where 
 - Deeply nested where clauses far from the Prisma call site may not be detected
 - Reads (findMany, findFirst) flagged at medium confidence; writes at high confidence
 - Prisma middleware in a separate file (`prisma.ts`) is detected only if in standard locations
+
+---
+
+## INPUT-VALIDATION-MISSING
+
+### What Shipguard detects
+
+Flags mutation endpoints that read user input (`request.json()`, `request.formData()`, `req.body`) and perform database writes or payment operations without schema validation.
+
+### Recognized validation patterns
+
+- **Zod**: `z.object()`, `.parse()`, `.safeParse()`, `zValidator()`
+- **Valibot**: `v.object()`, `parse()`, `safeParse()`
+- **Yup**: `yup.object()`, `.validate()`, `.validateSync()`
+- **Joi**: `Joi.object()`, `.validate()`
+- **ArkType**: `type()` from `arktype`
+- **tRPC input**: `.input(z.object(...))` on procedure chains
+
+### Severity
+
+- **med/med** for standard mutation routes
+- Bumped when `shipguard:public-intent` is present (public + unvalidated = higher exposure)
+
+### Known limitations
+
+- Custom validation functions not using a recognized library are not detected
+- Validation in a separate utility file may not be detected unless imported and called in the handler
+
+---
+
+## PUBLIC-INTENT-MISSING-REASON
+
+### What Shipguard detects
+
+Flags `shipguard:public-intent` directives that lack a required `reason` string.
+
+### Directive format
+
+```ts
+// shipguard:public-intent reason="Public URL health checker"
+```
+
+- Single-line comment anywhere in the route module
+- `reason` is required (non-empty string)
+- Supports double or single quotes
+- Missing or empty reason produces this finding and the directive is ignored
+
+### Effect
+
+When a valid `public-intent` directive is present:
+- **AUTH-BOUNDARY-MISSING** is suppressed (auth absence is intentional)
+- **RATE-LIMIT-MISSING** severity is floored at HIGH
+- **INPUT-VALIDATION-MISSING** severity is bumped
+- SSRF escalation applies if outbound fetch with user-influenced URL is detected
+
+When the directive is malformed (missing reason):
+- All rules behave as if the directive doesn't exist
+- A `PUBLIC-INTENT-MISSING-REASON` finding is emitted at med/high
 
 ---
 

@@ -1,7 +1,7 @@
 {
   "name": "@fourteensystems/shipguard",
-  "version": "0.2.7",
-  "description": "CI guardrail that blocks unprotected mutation routes in Next.js SaaS",
+  "version": "0.3.0",
+  "description": "Static analysis guardrail for Next.js SaaS — flags unprotected routes, missing rate limiting, and SSRF surfaces",
   "type": "module",
   "bin": {
     "shipguard": "./bin/shipguard.mjs"
