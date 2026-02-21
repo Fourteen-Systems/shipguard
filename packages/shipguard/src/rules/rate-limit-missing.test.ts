@@ -25,13 +25,14 @@ const MUTATION_SIGNALS = {
 
 function protectionSummary(opts: {
   authSatisfied?: boolean;
+  authEnforced?: boolean;
   rlSatisfied?: boolean;
   unverifiedWrappers?: string[];
 }): ProtectionSummary {
   return {
     auth: {
       satisfied: opts.authSatisfied ?? false,
-      enforced: false,
+      enforced: opts.authEnforced ?? false,
       sources: opts.authSatisfied ? ["direct"] : [],
       details: [],
       unverifiedWrappers: [],
@@ -308,59 +309,42 @@ describe("severity: public routes (no auth)", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/*  Auth-aware severity: authed routes (new behavior)                  */
+/*  Authenticated routes: no RL findings emitted                       */
 /* ------------------------------------------------------------------ */
 
-describe("severity: authenticated routes", () => {
+describe("authenticated routes suppressed", () => {
   const config = makeConfig();
 
-  it("authed mutation route → med/med (downgraded from critical)", () => {
+  it("strongly authed mutation route → no finding", () => {
     const route = createRoute("app/api/users/route.ts", MUTATION_HANDLER, {
       signals: MUTATION_SIGNALS,
-      protection: protectionSummary({ authSatisfied: true }),
+      protection: protectionSummary({ authSatisfied: true, authEnforced: true }),
     });
-    const findings = run(makeIndex([route]), config);
-    expect(findings).toHaveLength(1);
-    expect(findings[0].severity).toBe("med");
-    expect(findings[0].confidence).toBe("med");
-    expect(findings[0].evidence).toContain("route has auth boundary — rate limiting is secondary defense");
+    expect(run(makeIndex([route]), config)).toHaveLength(0);
   });
 
-  it("authed body-parsing route → low/low (downgraded from high)", () => {
+  it("strongly authed body-parsing route → no finding", () => {
     const route = createRoute("app/api/upload/route.ts", BODY_HANDLER, {
-      protection: protectionSummary({ authSatisfied: true }),
+      protection: protectionSummary({ authSatisfied: true, authEnforced: true }),
     });
-    const findings = run(makeIndex([route]), config);
-    expect(findings).toHaveLength(1);
-    expect(findings[0].severity).toBe("low");
-    expect(findings[0].confidence).toBe("low");
+    expect(run(makeIndex([route]), config)).toHaveLength(0);
   });
 
-  it("authed GET-only route → low/low (downgraded from med)", () => {
+  it("strongly authed GET-only route → no finding", () => {
     const route = createRoute("app/api/data/route.ts", BASIC_HANDLER, {
-      protection: protectionSummary({ authSatisfied: true }),
+      protection: protectionSummary({ authSatisfied: true, authEnforced: true }),
+    });
+    expect(run(makeIndex([route]), config)).toHaveLength(0);
+  });
+
+  it("weakly authed route (satisfied but not enforced) → still emits finding", () => {
+    const route = createRoute("app/api/data/route.ts", MUTATION_HANDLER, {
+      signals: MUTATION_SIGNALS,
+      protection: protectionSummary({ authSatisfied: true, authEnforced: false }),
     });
     const findings = run(makeIndex([route]), config);
     expect(findings).toHaveLength(1);
-    expect(findings[0].severity).toBe("low");
-    expect(findings[0].confidence).toBe("low");
-    expect(findings[0].evidence).toContain("route has auth boundary — rate limiting is secondary defense");
-  });
-
-  it("authed route gets different message and remediation than public", () => {
-    const authedRoute = createRoute("app/api/data/route.ts", BASIC_HANDLER, {
-      protection: protectionSummary({ authSatisfied: true }),
-    });
-    const publicRoute = createRoute("app/api/other/route.ts", BASIC_HANDLER, {
-      protection: protectionSummary({ authSatisfied: false }),
-    });
-
-    const authedFindings = run(makeIndex([authedRoute]), config);
-    const publicFindings = run(makeIndex([publicRoute]), config);
-
-    expect(authedFindings[0].message).toContain("Authenticated");
-    expect(publicFindings[0].message).toContain("Public");
-    expect(authedFindings[0].remediation).not.toEqual(publicFindings[0].remediation);
+    expect(findings[0].severity).toBe("critical");
   });
 });
 

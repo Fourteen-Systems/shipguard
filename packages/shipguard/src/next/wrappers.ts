@@ -356,6 +356,14 @@ function analyzeNodeForEvidence(
     evidence.rateLimitDetails.push("calls .limit() method");
   }
 
+  // General pattern: any function call with "ratelimit" or "rate_limit" in the name
+  const rlCallMatch = src.match(/\b(\w*(?:rateLimit|ratelimit|rate_limit)\w*)\s*\(/i);
+  if (rlCallMatch && !evidence.rateLimitCallPresent) {
+    evidence.rateLimitCallPresent = true;
+    evidence.rateLimitEnforced = true; // Name implies rate limiting — trust it
+    evidence.rateLimitDetails.push(`calls ${rlCallMatch[1]}()`);
+  }
+
   // Check for enforcement via AST (don't overwrite if already proven by built-in patterns)
   if (evidence.authCallPresent && !evidence.authEnforced) {
     evidence.authEnforced = detectEnforcement(node, authSet, "auth");
@@ -579,6 +587,16 @@ function computeRateLimitProtection(
         status.details.push(`imports ${pat.source}`);
         return status;
       }
+    }
+
+    // General pattern: any function call with "ratelimit" or "rate_limit" in the name
+    const rlCallMatch = src.match(/\b(\w*(?:rateLimit|ratelimit|rate_limit)\w*)\s*\(/i);
+    if (rlCallMatch) {
+      status.satisfied = true;
+      status.enforced = true;
+      status.sources.push("direct");
+      status.details.push(`calls ${rlCallMatch[1]}()`);
+      return status;
     }
 
     // Hint-based HOF wrapping (explicit hint = hard allow)

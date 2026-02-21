@@ -393,7 +393,7 @@ function hasAuthGuardReturn(src: string): boolean {
  *
  * This catches auth patterns that aren't in hints (custom function names).
  */
-const AUTH_FN_PATTERN = /\b(?:get|require|check|validate|verify|ensure|load|fetch)\w*(?:User|Session|Auth|Account|Identity|Token)\s*\(/i;
+const AUTH_FN_PATTERN = /\b(?:get|require|check|validate|verify|ensure|load|fetch|update)\w*(?:User|Session|Auth|Account|Identity|Token)\s*\(/i;
 
 function hasInlineAuthGuard(src: string): boolean {
   if (!AUTH_FN_PATTERN.test(src)) return false;

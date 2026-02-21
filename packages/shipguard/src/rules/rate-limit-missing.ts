@@ -76,8 +76,6 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
 
     const result = checkRoute(route, index, config);
     if (result) {
-      const isAuthed = route.protection?.auth.satisfied ?? false;
-
       // Severity bumps for high-value targets
       let severity = result.severity;
       let { confidence, confidenceRationale } = result;
@@ -87,7 +85,7 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
         confidence = "high";
         confidenceRationale = "High: login/signin endpoint without rate limiting — prime brute-force target";
         result.evidence.push("login/signin endpoint — brute-force risk");
-      } else if (hasFormDataUpload(route, index) && !isAuthed) {
+      } else if (hasFormDataUpload(route, index)) {
         severity = "critical";
         confidence = "high";
         confidenceRationale = "High: public file upload endpoint without rate limiting — storage abuse risk";
@@ -125,11 +123,9 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
         ruleId: RULE_ID,
         severity: capSeverity(severity, maxSeverity),
         confidence,
-        message: isAuthed
-          ? `Authenticated API route has no recognized rate limiting`
-          : route.publicIntent
-            ? `Intentionally public API route has no recognized rate limiting`
-            : `Public API route has no recognized rate limiting`,
+        message: route.publicIntent
+          ? `Intentionally public API route has no recognized rate limiting`
+          : `Public API route has no recognized rate limiting`,
         file: route.file,
         line: result.line,
         snippet: result.snippet,
@@ -142,18 +138,12 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
               "If using @upstash/ratelimit, wrap the handler with a rate limit check",
               "If rate limiting is at the edge (Cloudflare, Vercel), add a waiver with reason",
             ]
-          : isAuthed
-            ? [
-                "Consider adding rate limiting as defense-in-depth",
-                "Authenticated routes are lower risk but can still be abused with stolen credentials",
-                "If rate limiting is at the edge (Cloudflare, Vercel WAF), add a waiver",
-              ]
-            : [
-                "Add rate limiting middleware or wrapper to this route",
-                "If using @upstash/ratelimit, wrap the handler with a rate limit check",
-                "If rate limiting is handled at the edge (Cloudflare, Vercel), add a waiver with reason",
-                "Add custom wrapper names to hints.rateLimit.wrappers in config",
-              ],
+          : [
+              "Add rate limiting middleware or wrapper to this route",
+              "If using @upstash/ratelimit, wrap the handler with a rate limit check",
+              "If rate limiting is handled at the edge (Cloudflare, Vercel), add a waiver with reason",
+              "Add custom wrapper names to hints.rateLimit.wrappers in config",
+            ],
         tags,
       });
     }
@@ -234,8 +224,10 @@ function checkRoute(
   // Routes with cron key auth are server-to-server (no rate limiting needed)
   if (hasCronKeyAuth(src)) return null;
 
-  // Determine auth status for severity modulation
-  const isAuthed = route.protection?.auth.satisfied ?? false;
+  // Only suppress RL findings when auth is strongly enforced (proven throw/return on failure).
+  // Weak/optional auth (satisfied but not enforced) is treated as unauthenticated for RL purposes.
+  const authStrong = route.protection?.auth.satisfied && route.protection?.auth.enforced;
+  if (authStrong) return null;
 
   const evidence: string[] = [];
   let severity: Severity;
@@ -245,45 +237,21 @@ function checkRoute(
   const isMutation = route.signals.hasMutationEvidence || route.signals.hasDbWriteEvidence;
 
   if (isMutation) {
-    if (isAuthed) {
-      severity = "med";
-      confidence = "med";
-      confidenceRationale = "Medium: authenticated mutation route — abuse requires stolen credentials";
-      evidence.push("route performs mutations");
-      evidence.push(...route.signals.mutationDetails);
-      evidence.push("route has auth boundary — rate limiting is secondary defense");
-    } else {
-      severity = "critical";
-      confidence = "high";
-      confidenceRationale = "High: mutation route without rate limiting (higher abuse risk)";
-      evidence.push("route performs mutations (higher abuse risk)");
-      evidence.push(...route.signals.mutationDetails);
-    }
+    severity = "critical";
+    confidence = "high";
+    confidenceRationale = "High: public mutation route without rate limiting (higher abuse risk)";
+    evidence.push("route performs mutations (higher abuse risk)");
+    evidence.push(...route.signals.mutationDetails);
   } else if (hasBodyParsing(src)) {
-    if (isAuthed) {
-      severity = "low";
-      confidence = "low";
-      confidenceRationale = "Low: authenticated route with body parsing — abuse requires stolen credentials";
-      evidence.push("route reads request body");
-      evidence.push("route has auth boundary — rate limiting is secondary defense");
-    } else {
-      severity = "high";
-      confidence = "high";
-      confidenceRationale = "High: route reads request body without rate limiting";
-      evidence.push("route reads request body");
-    }
+    severity = "high";
+    confidence = "high";
+    confidenceRationale = "High: public route reads request body without rate limiting";
+    evidence.push("route reads request body");
   } else {
-    if (isAuthed) {
-      severity = "low";
-      confidence = "low";
-      confidenceRationale = "Low: authenticated GET-only route — rate limiting is good hygiene but low risk";
-      evidence.push("route has auth boundary — rate limiting is secondary defense");
-    } else {
-      severity = "med";
-      confidence = "med";
-      confidenceRationale = "Medium: public API route without rate limiting (GET-only, lower risk)";
-      evidence.push("public API route without rate limiting");
-    }
+    severity = "med";
+    confidence = "med";
+    confidenceRationale = "Medium: public API route without rate limiting (GET-only, lower risk)";
+    evidence.push("public API route without rate limiting");
   }
 
   return { severity, confidence, confidenceRationale, evidence };
@@ -303,6 +271,10 @@ function hasRateLimitCall(src: string, wrappers: string[]): boolean {
 
   // Upstash-style: ratelimit.limit(identifier) in route source
   if (/(?:ratelimit|rateLimit|rl|limiter|rateLimiter)\.limit\s*\(/i.test(src)) return true;
+
+  // General pattern: any function name containing "ratelimit" or "rate_limit"
+  // Catches: ratelimit(), ratelimitOrThrow(), checkRateLimit(), rateLimitMiddleware(), etc.
+  if (/\b\w*(?:rateLimit|ratelimit|rate_limit)\w*\s*\(/i.test(src)) return true;
 
   return false;
 }
