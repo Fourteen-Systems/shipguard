@@ -15,7 +15,7 @@ npx @fourteensystems/shipguard init
 Detects your framework and dependencies, generates a config, and runs your first scan.
 
 ```
-  Shipguard 0.2.6
+  Shipguard 0.2.7
   Detected: next-app-router · next-auth · prisma · upstash-ratelimit · middleware.ts
   Score: 85 PASS
 ```
@@ -115,10 +115,15 @@ Shipguard auto-detects your stack and adjusts detection accordingly:
 - Webhook routes (any path containing `webhook`) — exempt from rate-limit
 - Cron routes (`/api/cron/*`) — exempt from rate-limit
 - Framework-managed routes (NextAuth catch-all, OAuth/SAML endpoints, callbacks, OG images) — exempt from rate-limit
+- OAuth/OIDC/SSO/SCIM callback paths — exempt from auth (public by protocol design)
 - `GET`-only route handlers — not mutation surfaces
 - Routes covered by `middleware.ts` auth — no double-flagging
 - Routes wrapped by verified HOF wrappers (`withWorkspace(handler)` where auth+RL enforcement is proven)
+- DB-backed token lookups with deny on failure (password reset tokens, API keys)
+- Inline auth guards (`getCurrentUser()` + null check + throw/return)
 - Authenticated routes get lower rate-limit severity (abuse requires stolen credentials)
+- Login/signin endpoints get critical severity for missing rate limiting (brute-force risk)
+- Public file upload endpoints get critical severity for missing rate limiting (storage abuse risk)
 
 See [PATTERNS.md](../../PATTERNS.md) for full detection logic.
 

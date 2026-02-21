@@ -48,8 +48,15 @@ Server actions are discovered by scanning `.ts`/`.tsx` files under the app direc
 - Shared secret header: `process.env.*SECRET` + `headers.get()`
 - Supabase auth: `.auth.getUser()` / `.auth.getSession()` (call-based, not import-based)
 
+**Inline auth guard detection (clears the route, no hints needed):**
+- Common auth function name patterns: `get*User`, `require*Session`, `check*Auth`, `verify*Token`, `fetch*Account`, etc.
+- Combined with a null/falsy check within 15 lines (`if (!user)`, `if (session == null)`)
+- Guard body must contain `throw`, `return`, or `redirect`
+- DB-backed token lookup: Prisma queries on token/key tables (`apiToken`, `passwordResetToken`, etc.) with deny on failure (401/403 or `throw new`)
+- Webhook token verification: `timingSafeEqual()` with request data and deny on failure (401/403 or `throw new`)
+
 **Custom auth heuristic (downgrades confidence to medium):**
-- Verb patterns: `verify*`, `check*`, `require*`, `validate*`, `ensure*`, `guard*`, `protect*`
+- Verb patterns: `verify*`, `check*`, `require*`, `validate*`, `ensure*`, `guard*`, `protect*`, `get*`, `fetch*`, `load*`
 - Combined with: `Token`, `Auth`, `Session`, `User`, `Access`, `Secret`, `Signature`, `Permission`
 - Direct `Authorization` header reading
 
@@ -86,7 +93,8 @@ Server actions are discovered by scanning `.ts`/`.tsx` files under the app direc
 - **Wrapper introspection resolves most cases automatically** — hints are only needed when resolution fails
 - Wrappers from npm packages (bare specifiers) cannot be resolved — add to hints or use waivers
 - Auth enforced via API gateway or reverse proxy is not detectable — use waivers
-- Inline `if (!session)` checks without calling a known auth function may be missed
+- OAuth/OIDC/SSO/SCIM callback paths are fully exempt (public by protocol design)
+- Inline `if (!session)` checks are now detected when combined with common auth function names
 - tRPC middleware chain auth is not modeled — use `protectedProcedure` or add a waiver
 - Wrapper enforcement detection uses heuristics (checking for `if (!session) throw/return`) — unusual enforcement patterns (e.g., middleware-style `next()` delegation) may not be recognized
 
@@ -106,6 +114,7 @@ Flags API route handlers under `app/api/` and tRPC public mutation procedures th
 - `@arcjet/next` (import detection)
 - `@unkey/ratelimit` (import detection)
 - Any wrapper name in `hints.rateLimit.wrappers` (call detection)
+- `ratelimit.limit()`, `rl.limit()`, `limiter.limit()` (Upstash-style method calls)
 - Middleware-level rate limiting (heuristic on middleware.ts content)
 
 **Wrapper introspection (automatic):**
@@ -131,6 +140,8 @@ Severity is modulated by whether the route has a recognized auth boundary. Authe
 | Has auth | Mutation | **med** | med |
 | Has auth | Body parsing | **low** | low |
 | Has auth | GET-only | **low** | low |
+| Any | Login/signin path | **critical** | high |
+| No auth | File upload (formData/body+put) | **critical** | high |
 
 ### Automatic exemptions
 

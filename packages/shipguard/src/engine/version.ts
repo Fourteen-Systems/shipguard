@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ShipguardConfig } from "./types.js";
 
-export const SHIPGUARD_VERSION = "0.2.6";
+export const SHIPGUARD_VERSION = "0.2.7";
 export const INDEX_VERSION = 1;
 
 export function hashConfig(config: ShipguardConfig): string {
