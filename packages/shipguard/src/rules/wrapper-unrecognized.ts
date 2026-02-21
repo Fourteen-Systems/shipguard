@@ -36,10 +36,13 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
     }
 
     // Check if any wrapped routes are API routes (need rate limiting)
+    // Exclude routes that are already exempt from rate-limit (cron, webhook, etc.)
     const apiFileSet = new Set(
       index.routes.all.filter((r) => r.isApi).map((r) => r.file),
     );
-    const wrappedApiFiles = wrapper.usageFiles.filter((f) => apiFileSet.has(f));
+    const wrappedApiFiles = wrapper.usageFiles.filter((f) =>
+      apiFileSet.has(f) && !isRateLimitExemptPath(f),
+    );
 
     if (wrappedApiFiles.length > 0) {
       if (!wrapper.resolved || !wrapper.evidence.rateLimitEnforced) {
@@ -93,4 +96,9 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
   }
 
   return findings;
+}
+
+/** Paths exempt from rate-limit — mirrors EXEMPT_PATH_PATTERNS + WEBHOOK patterns in rate-limit-missing. */
+function isRateLimitExemptPath(file: string): boolean {
+  return /\/cron\//.test(file) || /webhook/i.test(file) || /\/tasks\//.test(file);
 }

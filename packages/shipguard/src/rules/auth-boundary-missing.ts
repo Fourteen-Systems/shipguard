@@ -228,6 +228,9 @@ function hasBuiltInAuthPattern(src: string): boolean {
   // Stripe webhook signature verification
   if (/stripe\.webhooks\.constructEvent\s*\(/m.test(src)) return true;
 
+  // WorkOS webhook signature verification
+  if (/workos\.webhooks\.constructEvent\s*\(/m.test(src)) return true;
+
   // Vercel/QStash cron signature verification
   if (/verifyVercelSignature\s*\(/m.test(src)) return true;
   if (/verifyQstashSignature\s*\(/m.test(src)) return true;

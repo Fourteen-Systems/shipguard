@@ -77,6 +77,7 @@ export const DEFAULT_CONFIG: ShipguardConfig = {
     "AUTH-BOUNDARY-MISSING": { severity: "critical" },
     "RATE-LIMIT-MISSING": { severity: "critical" },
     "TENANCY-SCOPE-MISSING": { severity: "critical" },
+    "INPUT-VALIDATION-MISSING": { severity: "high" },
     "WRAPPER-UNRECOGNIZED": { severity: "high" },
   },
   waiversFile: "shipguard.waivers.json",
@@ -125,6 +126,7 @@ export function writeDefaultConfig(rootDir: string, opts: { force?: boolean }): 
       "AUTH-BOUNDARY-MISSING": { severity: "critical" },
       "RATE-LIMIT-MISSING": { severity: "critical" },
       "TENANCY-SCOPE-MISSING": { severity: "critical" },
+      "INPUT-VALIDATION-MISSING": { severity: "high" },
       "WRAPPER-UNRECOGNIZED": { severity: "high" },
     },
     scoring: {

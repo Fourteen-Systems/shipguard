@@ -11,6 +11,8 @@ export interface RunOptions {
   configOverrides?: Partial<ShipguardConfig>;
   /** Additional exclude globs appended to config excludes (not replacing) */
   additionalExclude?: string[];
+  /** Called with a short status string at each scan phase */
+  onProgress?: (step: string) => void;
 }
 
 export async function runScan(opts: RunOptions): Promise<ScanResult> {
@@ -59,16 +61,21 @@ export async function runScan(opts: RunOptions): Promise<ScanResult> {
     config.exclude = [...config.exclude, ...opts.additionalExclude];
   }
 
+  const progress = opts.onProgress ?? (() => {});
+
   // Build Next.js index
-  const index = await buildNextIndex(opts.rootDir, config.exclude);
+  progress("Indexing routes and server actions");
+  const index = await buildNextIndex(opts.rootDir, config.exclude, opts.onProgress);
 
   // Merge auto-detected hints with user config
   const mergedHints = mergeHints(config.hints, index.hints);
 
   // Run rules
+  progress("Running rules");
   const rawFindings = runAllRules(index, { ...config, hints: mergedHints });
 
   // Apply waivers
+  progress("Applying waivers");
   const waivers = loadWaivers(opts.rootDir, config.waiversFile);
   const { active, waived } = applyWaivers(rawFindings, waivers);
 

@@ -61,6 +61,38 @@ describe("detectMutationSignals", () => {
     expect(signals.hasDbWriteEvidence).toBe(true);
   });
 
+  it("ignores crypto .update() — not a DB write", () => {
+    const src = `
+      const sig = crypto.createHmac("sha256", secret).update(text).digest();
+    `;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasDbWriteEvidence).toBe(false);
+  });
+
+  it("ignores headers.delete() — not a DB write", () => {
+    const src = `headers.delete('content-length');`;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasDbWriteEvidence).toBe(false);
+  });
+
+  it("ignores optional chaining span?.update() — not a DB write", () => {
+    const src = `span?.update({ parentObservationId: tracePayload?.observationId });`;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasDbWriteEvidence).toBe(false);
+  });
+
+  it("still detects model.update() as DB write", () => {
+    const src = `await asyncTaskModel.update(taskId, { status: "done" });`;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasDbWriteEvidence).toBe(true);
+  });
+
+  it("detects Drizzle db.insert() as DB write", () => {
+    const src = `await db.insert(users).values({ name, email });`;
+    const signals = detectMutationSignals(src);
+    expect(signals.hasDbWriteEvidence).toBe(true);
+  });
+
   it("returns no signals for GET-only route", () => {
     const src = `
       export async function GET() {

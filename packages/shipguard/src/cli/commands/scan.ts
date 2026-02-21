@@ -35,7 +35,18 @@ export async function cmdScan(opts: ScanOptions): Promise<void> {
       ? opts.exclude.split(",").map((g) => g.trim())
       : undefined;
 
-    const result = await runScan({ rootDir, configOverrides, additionalExclude });
+    // Progress indicator for interactive terminals
+    const isTTY = process.stderr.isTTY;
+    const onProgress = isTTY
+      ? (step: string) => {
+          process.stderr.write(`\r  ${pc.dim("⏳")} ${pc.dim(step)}${"".padEnd(20)}\r`);
+        }
+      : undefined;
+
+    const result = await runScan({ rootDir, configOverrides, additionalExclude, onProgress });
+
+    // Clear progress line
+    if (isTTY) process.stderr.write("\r".padEnd(60) + "\r");
 
     // Filter by confidence if specified, recalculate score and summary
     if (opts.minConfidence) {

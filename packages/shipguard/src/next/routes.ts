@@ -11,6 +11,7 @@ const PRISMA_WRITE_METHODS = [
   "update", "updateMany",
   "upsert",
   "delete", "deleteMany",
+  "insert", "insertMany",  // Drizzle, Knex, MongoDB
 ];
 
 /**
@@ -23,6 +24,27 @@ const STRIPE_WRITE_PATTERNS = [
   /stripe\.checkout\.sessions\.create\s*\(/,
   /stripe\.subscriptions\./,
 ];
+
+/**
+ * Known non-DB objects whose .update()/.delete()/.create() are false positives.
+ * Lowercase for case-insensitive matching.
+ */
+const NON_DB_CALLERS = new Set([
+  // crypto / hashing
+  "crypto", "hmac", "hash", "cipher", "decipher", "sign", "verify",
+  "calculatedsignature", "signature", "digest",
+  // state / UI
+  "state", "setstate", "set", "ref", "context",
+  // collections / cache / web APIs
+  "cache", "map", "store", "headers", "params", "searchparams",
+  "formdata", "cookies", "cookie", "cookiestore", "localstorage", "sessionstorage",
+  // streams / events
+  "socket", "stream", "emitter", "readable", "writable",
+  // DOM
+  "document", "element", "node",
+  // React / Next
+  "router", "response", "nextresponse", "summary",
+]);
 
 /**
  * Admin-like path segments that suggest privileged operations.
@@ -81,11 +103,14 @@ export function classifyMutationRoutes(all: NextRoute[]): NextRoute[] {
 export function detectMutationSignals(src: string): MutationSignals {
   const details: string[] = [];
 
-  // Prisma writes
+  // Prisma / ORM writes
   let hasDbWrite = false;
   for (const method of PRISMA_WRITE_METHODS) {
-    const pattern = new RegExp(`\\.${method}\\s*\\(`, "g");
-    if (pattern.test(src)) {
+    const pattern = new RegExp(`(\\w+)\\.${method}\\s*\\(`, "g");
+    const matches = [...src.matchAll(pattern)];
+    // Filter out known non-DB callers (crypto.update, cache.delete, etc.)
+    const dbMatches = matches.filter((m) => !NON_DB_CALLERS.has(m[1].toLowerCase()));
+    if (dbMatches.length > 0) {
       hasDbWrite = true;
       details.push(`prisma.${method}`);
     }

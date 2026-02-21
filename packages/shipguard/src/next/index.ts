@@ -16,13 +16,16 @@ export { detectNextAppRouter } from "./detect.js";
 export async function buildNextIndex(
   rootDir: string,
   exclude: string[],
+  onProgress?: (step: string) => void,
 ): Promise<NextIndex> {
+  const progress = onProgress ?? (() => {});
   const det = detectNextAppRouter(rootDir);
   if (!det.ok) {
     throw new Error(`Shipguard v1 supports Next.js App Router only: ${det.reason ?? "unknown reason"}`);
   }
 
   const { appDir } = det;
+  progress("Reading dependencies");
   const deps = readDeps(rootDir);
 
   // Check for middleware in standard locations
@@ -32,17 +35,22 @@ export async function buildNextIndex(
     || existsSync(path.join(rootDir, "src/middleware.js"));
 
   const hints = defaultHintsFromDeps(deps, hasMiddlewareTs);
+  progress("Analyzing middleware");
   const middleware = analyzeMiddleware(rootDir);
 
+  progress("Discovering routes");
   const allRoutes = await findRouteHandlers(rootDir, exclude, appDir);
   const mutationRoutes = classifyMutationRoutes(allRoutes);
 
+  progress("Discovering server actions");
   const allActions = await findServerActions(rootDir, exclude, appDir);
   const mutationActions = classifyMutationActions(allActions);
 
+  progress("Analyzing tRPC procedures");
   const trpc = await buildTrpcIndex(rootDir, appDir, exclude);
 
   // Wrapper introspection: resolve, analyze, compute protection
+  progress("Resolving wrappers");
   const tsconfigPaths = loadTsconfigPaths(rootDir);
   const resolveOpts = { rootDir, tsconfigPaths };
   const wrappers = buildWrapperIndex(

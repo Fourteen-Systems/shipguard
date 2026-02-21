@@ -32,7 +32,7 @@ export function readDeps(rootDir: string): NextDepsIndex {
     hasClerk: Boolean(deps["@clerk/nextjs"]),
     hasSupabase: Boolean(deps["@supabase/ssr"] || deps["@supabase/auth-helpers-nextjs"]),
     hasKinde: Boolean(deps["@kinde-oss/kinde-auth-nextjs"]),
-    hasWorkOS: Boolean(deps["@workos-inc/authkit-nextjs"]),
+    hasWorkOS: Boolean(deps["@workos-inc/authkit-nextjs"] || deps["@workos-inc/node"]),
     hasBetterAuth: Boolean(deps["better-auth"]),
     hasLucia: Boolean(deps["lucia"]),
     hasAuth0: Boolean(deps["@auth0/nextjs-auth0"]),

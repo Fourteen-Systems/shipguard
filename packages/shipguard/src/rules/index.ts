@@ -4,6 +4,7 @@ import * as authBoundary from "./auth-boundary-missing.js";
 import * as rateLimit from "./rate-limit-missing.js";
 import * as tenancyScope from "./tenancy-scope-missing.js";
 import * as wrapperUnrecognized from "./wrapper-unrecognized.js";
+import * as inputValidation from "./input-validation-missing.js";
 
 export interface RuleMeta {
   id: string;
@@ -36,6 +37,13 @@ export const RULE_REGISTRY: RuleMeta[] = [
     docs: "Shipguard checks that Prisma queries include a tenant scoping field (orgId, tenantId, workspaceId) in their where clause. Only runs when Prisma is detected and the schema contains tenant fields. Configure field names in hints.tenancy.orgFieldNames.",
   },
   {
+    id: "INPUT-VALIDATION-MISSING",
+    name: "Input Validation Missing",
+    description: "Flags endpoints that read user input and perform writes without schema validation.",
+    defaultSeverity: "high",
+    docs: "Shipguard checks that endpoints reading request.json(), formData(), or req.body validate input through a schema library (zod, valibot, yup, joi) before passing data to database writes or payment operations. Only flags when both body reading and writes are detected without validation.",
+  },
+  {
     id: "WRAPPER-UNRECOGNIZED",
     name: "Wrapper Unrecognized",
     description: "Flags HOF wrappers that could not be analyzed for auth or rate-limit enforcement.",
@@ -56,6 +64,9 @@ export function runAllRules(index: NextIndex, config: ShipguardConfig): Finding[
   }
   if (config.rules["TENANCY-SCOPE-MISSING"]) {
     findings.push(...tenancyScope.run(index, config));
+  }
+  if (config.rules["INPUT-VALIDATION-MISSING"]) {
+    findings.push(...inputValidation.run(index, config));
   }
   // WRAPPER-UNRECOGNIZED is always enabled unless explicitly configured out
   if (config.rules["WRAPPER-UNRECOGNIZED"] !== undefined ? config.rules["WRAPPER-UNRECOGNIZED"] : true) {

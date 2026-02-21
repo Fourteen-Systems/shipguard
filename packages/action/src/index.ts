@@ -213,6 +213,9 @@ function buildCommentBody(
         lines.push(`- ${e}`);
       }
       lines.push(`- *${f.confidenceRationale}*`);
+      if (f.remediation.length > 0) {
+        lines.push(`- **Fix:** ${f.remediation[0]}`);
+      }
       lines.push("");
     }
     lines.push("</details>");

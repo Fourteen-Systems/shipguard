@@ -15,7 +15,7 @@ npx @fourteensystems/shipguard init
 Detects your framework and dependencies, generates a config, and runs your first scan.
 
 ```
-  Shipguard 0.2.4
+  Shipguard 0.2.6
   Detected: next-app-router · next-auth · prisma · upstash-ratelimit · middleware.ts
   Score: 85 PASS
 ```
@@ -61,6 +61,7 @@ shipguard explain AUTH-BOUNDARY-MISSING
 | AUTH-BOUNDARY-MISSING | critical | Mutation endpoints without auth checks |
 | RATE-LIMIT-MISSING | critical | API routes without rate limiting (auth-aware severity) |
 | TENANCY-SCOPE-MISSING | critical | Prisma queries without tenant scoping |
+| INPUT-VALIDATION-MISSING | med | Mutation endpoints accepting input without schema validation |
 | WRAPPER-UNRECOGNIZED | high | HOF wrappers that couldn't be verified for auth/rate-limit enforcement |
 
 ### Wrapper Introspection
@@ -79,7 +80,8 @@ Shipguard doesn't just detect the wrapper name — it **follows the import, read
 1. **Resolve**: follows `import { withWorkspace } from "@/lib/auth"` through tsconfig path aliases (`@/lib/*` → `lib/*`), barrel re-exports (`index.ts` → `export * from "./workspace"`), up to 5 hops with cycle detection
 2. **Analyze**: parses the wrapper body with TypeScript AST to find auth/rate-limit calls
 3. **Verify enforcement**: checks that the call result is used in a conditional (`if (!session) throw`) — calling `getSession()` without checking the result is NOT an auth boundary
-4. **Apply**: routes using a verified wrapper are automatically cleared, no hints needed
+4. **Built-in patterns**: recognizes webhook signature verification (`stripe.webhooks.constructEvent`, `verifyVercelSignature`, `verifyQstashSignature`, HMAC + `timingSafeEqual`) as auth enforcement
+5. **Apply**: routes using a verified wrapper are automatically cleared, no hints needed
 
 When a wrapper can't be resolved (npm package) or enforcement can't be proven, Shipguard emits a single grouped `WRAPPER-UNRECOGNIZED` finding instead of N identical per-route alerts.
 
@@ -105,6 +107,8 @@ Shipguard auto-detects your stack and adjusts detection accordingly:
 | **Upstash** | `Ratelimit`, `ratelimit.limit()` as rate-limit evidence |
 | **Arcjet** | `fixedWindow()`, `slidingWindow()`, `tokenBucket()` |
 | **Unkey** | `withUnkey()`, `verifyKey()` |
+| **Zod / Valibot / Yup** | Schema validation in mutation handlers (INPUT-VALIDATION-MISSING) |
+| **Webhook signatures** | Stripe, WorkOS, Vercel cron, QStash signature verification as auth |
 
 ### What It Skips
 

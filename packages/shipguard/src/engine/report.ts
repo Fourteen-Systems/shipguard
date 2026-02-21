@@ -14,7 +14,17 @@ export function formatPretty(result: ScanResult, diff?: BaselineDiff): string {
   lines.push("");
   lines.push(`  ${pc.bold("Shipguard")} ${pc.dim(result.shipguardVersion)}`);
   lines.push(`  ${pc.dim("Detected:")} ${detected.join(" · ")}`);
-  lines.push(`  ${pc.dim("Score:")} ${scoreColor(String(score))} ${scoreColor(status)}`);
+  // Score line with inline severity counts
+  if (findings.length === 0) {
+    lines.push(`  ${pc.dim("Score:")} ${scoreColor(String(score))} ${scoreColor(status)}`);
+  } else {
+    const parts: string[] = [];
+    if (summary.critical > 0) parts.push(pc.red(`${summary.critical} critical`));
+    if (summary.high > 0) parts.push(pc.yellow(`${summary.high} high`));
+    if (summary.med > 0) parts.push(`${summary.med} med`);
+    if (summary.low > 0) parts.push(pc.dim(`${summary.low} low`));
+    lines.push(`  ${pc.dim("Score:")} ${scoreColor(String(score))} ${scoreColor(status)}  ${pc.dim("·")}  ${parts.join(pc.dim(" · "))}`);
+  }
 
   // Banner: no auth provider detected
   const d = result.detected.deps;
@@ -58,7 +68,9 @@ export function formatPretty(result: ScanResult, diff?: BaselineDiff): string {
         }
       }
       lines.push(`      ${pc.dim(`Why ${f.confidence}: ${f.confidenceRationale}`)}`);
-
+      if (f.remediation.length > 0) {
+        lines.push(`      ${pc.cyan("Fix:")} ${f.remediation[0]}`);
+      }
     }
     lines.push("");
   }

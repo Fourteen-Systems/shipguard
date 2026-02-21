@@ -299,11 +299,45 @@ function analyzeNodeForEvidence(
   // Auth: built-in patterns (Supabase .auth.getUser(), .auth.getSession())
   if (/\.auth\.getUser\s*\(/.test(src)) {
     evidence.authCallPresent = true;
+    evidence.authEnforced = true;
     evidence.authDetails.push("calls .auth.getUser()");
   }
   if (/\.auth\.getSession\s*\(/.test(src)) {
     evidence.authCallPresent = true;
+    evidence.authEnforced = true;
     evidence.authDetails.push("calls .auth.getSession()");
+  }
+
+  // Auth: webhook/cron signature verification patterns
+  if (/stripe\.webhooks\.constructEvent\s*\(/.test(src)) {
+    evidence.authCallPresent = true;
+    evidence.authEnforced = true;
+    evidence.authDetails.push("verifies Stripe webhook signature");
+  }
+  if (/workos\.webhooks\.constructEvent\s*\(/.test(src)) {
+    evidence.authCallPresent = true;
+    evidence.authEnforced = true;
+    evidence.authDetails.push("verifies WorkOS webhook signature");
+  }
+  if (/verifyVercelSignature\s*\(/.test(src)) {
+    evidence.authCallPresent = true;
+    evidence.authEnforced = true;
+    evidence.authDetails.push("verifies Vercel cron signature");
+  }
+  if (/verifyQstashSignature\s*\(/.test(src)) {
+    evidence.authCallPresent = true;
+    evidence.authEnforced = true;
+    evidence.authDetails.push("verifies QStash signature");
+  }
+  if (/createHmac\s*\(/.test(src) && /signature/i.test(src)) {
+    evidence.authCallPresent = true;
+    evidence.authEnforced = true;
+    evidence.authDetails.push("HMAC signature verification");
+  }
+  if (/timingSafeEqual\s*\(/.test(src)) {
+    evidence.authCallPresent = true;
+    evidence.authEnforced = true;
+    evidence.authDetails.push("timing-safe comparison (signature verification)");
   }
 
   // Rate limit: known wrappers
@@ -315,15 +349,15 @@ function analyzeNodeForEvidence(
     }
   }
 
-  // Now check for enforcement via AST
-  if (evidence.authCallPresent) {
+  // Check for enforcement via AST (don't overwrite if already proven by built-in patterns)
+  if (evidence.authCallPresent && !evidence.authEnforced) {
     evidence.authEnforced = detectEnforcement(node, authSet, "auth");
     if (evidence.authEnforced) {
       evidence.authDetails.push("enforces: conditional throw/return on auth failure");
     }
   }
 
-  if (evidence.rateLimitCallPresent) {
+  if (evidence.rateLimitCallPresent && !evidence.rateLimitEnforced) {
     evidence.rateLimitEnforced = detectEnforcement(node, rlSet, "rateLimit");
     if (evidence.rateLimitEnforced) {
       evidence.rateLimitDetails.push("enforces: conditional throw/return on rate limit");
