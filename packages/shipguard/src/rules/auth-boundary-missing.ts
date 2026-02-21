@@ -30,31 +30,45 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
     if (isAllowlisted(route.file, authAllowlist)) continue;
     const result = checkRoute(route, index, config);
     if (result) {
-      const isWebhook = /webhook/i.test(route.pathname ?? route.file);
+      const pathname = route.pathname ?? route.file;
+      const isWebhook = /webhook/i.test(pathname);
+      const isCallback = isCallbackPath(pathname);
       findings.push({
         ruleId: RULE_ID,
         severity: severityFromConfidence(result.confidence, maxSeverity),
         confidence: result.confidence,
-        message: isWebhook
-          ? `Webhook endpoint processes payloads without signature verification`
-          : `Route handler performs mutations without a recognized auth boundary`,
+        message: isCallback
+          ? `Callback endpoint performs mutations without verified framework validation`
+          : isWebhook
+            ? `Webhook endpoint processes payloads without signature verification`
+            : `Route handler performs mutations without a recognized auth boundary`,
         file: route.file,
         line: result.line,
         snippet: result.snippet,
         evidence: result.evidence,
         confidenceRationale: result.confidenceRationale,
-        remediation: isWebhook
+        remediation: isCallback
           ? [
-              "Verify the provider's webhook signature before processing the payload",
-              "Examples: Stripe `constructEvent()`, GitHub HMAC, Google Pub/Sub JWT, Slack `verifyRequest()`",
-              "Use `crypto.timingSafeEqual()` for HMAC comparisons to prevent timing attacks",
+              "Callback endpoints are typically public but should rely on framework validation (state/PKCE)",
+              "If using NextAuth/Auth.js, Clerk, or similar — the framework handles this; add it to hints.auth.functions",
+              "Shipguard couldn't verify that framework validation is in place",
             ]
-          : [
-              "Add an auth check at the top of the handler (e.g., `const session = await auth()`)",
-              "Ensure middleware.ts protects this route segment",
-              "If using a custom auth wrapper, add it to hints.auth.functions in shipguard.config.json",
-            ],
-        tags: isWebhook ? ["auth", "webhook", "server"] : ["auth", "server"],
+          : isWebhook
+            ? [
+                "Verify the provider's webhook signature before processing the payload",
+                "Examples: Stripe `constructEvent()`, GitHub HMAC, Google Pub/Sub JWT, Slack `verifyRequest()`",
+                "Use `crypto.timingSafeEqual()` for HMAC comparisons to prevent timing attacks",
+              ]
+            : [
+                "Add an auth check at the top of the handler (e.g., `const session = await auth()`)",
+                "Ensure middleware.ts protects this route segment",
+                "If using a custom auth wrapper, add it to hints.auth.functions in shipguard.config.json",
+              ],
+        tags: isCallback
+          ? ["auth", "callback", "server"]
+          : isWebhook
+            ? ["auth", "webhook", "server"]
+            : ["auth", "server"],
       });
     }
   }
@@ -157,6 +171,14 @@ function checkRoute(
     evidence.push("possible custom auth wrapper detected (not in hints)");
   }
 
+  // Downgrade callback/OAuth/OIDC paths — public by protocol design, but still flag them
+  const pathname = route.pathname ?? route.file;
+  if (isCallbackPath(pathname)) {
+    confidence = "med";
+    confidenceRationale = "Medium: callback/OAuth/OIDC endpoint — typically public by protocol design";
+    evidence.push("callback/OAuth/OIDC path — typically relies on framework state/PKCE validation");
+  }
+
   // Find the line of the first mutation evidence for precise reporting
   const line = findFirstMutationLine(src, route.signals);
 
@@ -223,7 +245,196 @@ function hasBuiltInAuthPattern(src: string): boolean {
   if (/\.auth\.getUser\s*\(/.test(src)) return true;
   if (/\.auth\.getSession\s*\(/.test(src)) return true;
 
+  // --- Framework wrappers with built-in request signing ---
+
+  // Upstash Workflow serve() — verifies request signatures automatically
+  if (hasFrameworkServe(src, "@upstash/workflow")) return true;
+
+  // Inngest serve() — verifies signing key on incoming requests
+  if (hasFrameworkServe(src, "inngest")) return true;
+
+  // --- Webhook verification libraries (import + call) ---
+
+  // Svix webhook verification (used by Clerk, etc.)
+  if (hasImportAndCall(src, "svix", /\.verify\s*\(/)) return true;
+
+  // Octokit/GitHub webhook verification
+  if (hasImportAndCall(src, "@octokit/webhooks", /\.verify\s*\(/)) return true;
+
+  // --- Contextual webhook auth patterns ---
+
+  // timingSafeEqual used with request-derived data + early 401/403
+  if (hasWebhookTokenVerification(src)) return true;
+
+  // --- JWT verification (jose / jsonwebtoken) ---
+
+  // jose: jwtVerify() with token from headers/cookies + early deny
+  if (hasImportAndCall(src, "jose", /jwtVerify\s*\(/)) return true;
+
+  // jsonwebtoken: jwt.verify() / verify() with token from headers/cookies
+  if (hasImportAndCall(src, "jsonwebtoken", /\.verify\s*\(/)) return true;
+
+  // --- DB-backed API token lookup + early deny ---
+  if (hasDbTokenLookup(src)) return true;
+
+  // --- Auth-guard return: header/token/secret check → early 401/403 before mutation ---
+  if (hasAuthGuardReturn(src)) return true;
+
   return false;
+}
+
+/**
+ * Detect framework `serve()` wrappers that have built-in request signing.
+ * Checks both the import source and the serve() call in the source.
+ */
+function hasFrameworkServe(src: string, packagePrefix: string): boolean {
+  const importPattern = new RegExp(`from\\s+["']${escapeRegex(packagePrefix)}[^"']*["']`);
+  if (!importPattern.test(src)) return false;
+  return /\bserve\s*[<(]/.test(src);
+}
+
+/**
+ * Detect a known verification library by import source + method call.
+ */
+function hasImportAndCall(src: string, packageName: string, callPattern: RegExp): boolean {
+  const importPattern = new RegExp(`from\\s+["']${escapeRegex(packageName)}[^"']*["']`);
+  if (!importPattern.test(src)) return false;
+  return callPattern.test(src);
+}
+
+/**
+ * Detect webhook token verification: timingSafeEqual used with
+ * request-derived data (headers/params/body) and early 401/403 on mismatch.
+ *
+ * NOT a blanket "any timingSafeEqual = auth" — requires:
+ * 1. timingSafeEqual call present
+ * 2. Reads from request (headers, searchParams, or body)
+ * 3. Returns 401 or 403 on failure
+ */
+function hasWebhookTokenVerification(src: string): boolean {
+  if (!/timingSafeEqual\s*\(/.test(src)) return false;
+  const readsRequest = /headers\.get\s*\(/.test(src)
+    || /searchParams\.get\s*\(/.test(src)
+    || /request\.json\s*\(/.test(src)
+    || /req\.json\s*\(/.test(src);
+  if (!readsRequest) return false;
+  return /status:\s*40[13]\b/.test(src) || /\(\s*40[13]\s*\)/.test(src);
+}
+
+/**
+ * Detect DB-backed API token lookup with early deny.
+ *
+ * Pattern: reads token from header → looks it up in DB → returns 401/403 if missing.
+ * Common in B2B SaaS for API key authentication.
+ *
+ * Requires all three:
+ * 1. Reads from request headers
+ * 2. DB lookup on a token/key-like table (prisma.apiToken, prisma.apiKey, etc.)
+ * 3. Returns 401 or 403
+ */
+function hasDbTokenLookup(src: string): boolean {
+  if (!/headers\.get\s*\(/.test(src)) return false;
+  const hasTokenLookup = /\.(apiToken|apiKey|token|accessToken|api_key|access_token)\.(findUnique|findFirst|findMany)\s*\(/i.test(src);
+  if (!hasTokenLookup) return false;
+  return /status:\s*40[13]\b/.test(src) || /\(\s*40[13]\s*\)/.test(src);
+}
+
+/**
+ * Detect auth-guard return patterns: an early 401/403 return whose guarding
+ * condition references an auth signal, occurring BEFORE mutation evidence.
+ *
+ * We require ALL of:
+ * 1. A return/throw producing 401 or 403
+ * 2. The surrounding context references an auth-related signal
+ * 3. The guard occurs before the first mutation evidence in the file
+ *
+ * Auth signals (the condition must reference at least one):
+ * - headers.get(...) with auth-related header names
+ * - Variables named token, apiKey, signature, secret, session, user, auth
+ * - Comparison against process.env.* or config values
+ *
+ * This intentionally does NOT match:
+ * - Feature flag checks (if (!enabled) return 403)
+ * - Plan gating (if (!isPro) return 403)
+ * - CSRF/bot checks without auth signals
+ * - 401/403 returns AFTER mutation code (error handling, not guards)
+ */
+function hasAuthGuardReturn(src: string): boolean {
+  // Must have a 401 or 403 status somewhere
+  if (!/status:\s*40[13]\b/.test(src) && !/\(\s*40[13]\s*\)/.test(src)) return false;
+
+  const lines = src.split("\n");
+
+  // Find the first mutation evidence line
+  const firstMutationLine = findFirstMutationLineIndex(lines);
+
+  // Find lines with 401/403 returns and check nearby context for auth signals
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!/40[13]/.test(line)) continue;
+    if (!/status|Response|NextResponse|return|throw/i.test(line)) continue;
+
+    // Guard must occur before mutation evidence (or if no mutation found, accept it)
+    if (firstMutationLine !== undefined && i >= firstMutationLine) continue;
+
+    // Look at the surrounding context (up to 10 lines before the 401/403)
+    const contextStart = Math.max(0, i - 10);
+    const context = lines.slice(contextStart, i + 1).join("\n");
+
+    if (hasAuthSignalInContext(context)) return true;
+  }
+
+  return false;
+}
+
+/** Find the 0-based line index of the first mutation evidence in source lines. */
+function findFirstMutationLineIndex(lines: string[]): number | undefined {
+  for (let i = 0; i < lines.length; i++) {
+    if (/\.(create|update|delete|upsert|createMany|updateMany|deleteMany)\s*\(/.test(lines[i])) {
+      return i;
+    }
+    if (/stripe\.\w+\.(create|update|del)\s*\(/.test(lines[i])) {
+      return i;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Auth signals that distinguish real auth guards from feature flags / plan gating.
+ */
+const AUTH_SIGNAL_PATTERNS: RegExp[] = [
+  // Header reads with auth-related names
+  /headers\.get\s*\(\s*["'](?:authorization|x-api-key|x-webhook-secret|x-signature|x-hub-signature)/i,
+  // Any custom header read + secret/token/key comparison
+  /headers\.get\s*\([^)]+\)[\s\S]{0,100}(?:secret|token|key|signature)\b/i,
+  // Variable names that imply auth context
+  /\b(?:const|let|var)\s+(?:token|apiKey|api_key|signature|webhookSecret|webhook_secret|headerValue)\b/i,
+  // Comparison against env vars (secret/key/token)
+  /process\.env\.\w*(?:SECRET|TOKEN|KEY|API_KEY|WEBHOOK)\w*/i,
+  // Authorization / Bearer token patterns
+  /\bauthorization\b/i,
+  /\bbearer\b/i,
+  // Known verification function names in the condition
+  /\b(?:verify|validate|check)\w*(?:Token|Signature|Auth|Secret|Key)\s*\(/i,
+];
+
+/**
+ * Check if a code context (a few lines around a 401/403 return)
+ * contains at least one auth signal, distinguishing it from
+ * feature-flag / plan-gating returns.
+ */
+function hasAuthSignalInContext(context: string): boolean {
+  return AUTH_SIGNAL_PATTERNS.some((pattern) => pattern.test(context));
+}
+
+/**
+ * Detect callback/OAuth/OIDC paths that are typically public by protocol design.
+ * These get downgraded (not allowlisted) — they should still rely on
+ * framework validation (state/PKCE) but are not auth-boundary issues.
+ */
+function isCallbackPath(pathname: string): boolean {
+  return /\/(callback|oauth|oidc)(\/|$)/i.test(pathname);
 }
 
 function hasPossibleCustomAuth(src: string): boolean {
