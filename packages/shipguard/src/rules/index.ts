@@ -50,6 +50,13 @@ export const RULE_REGISTRY: RuleMeta[] = [
     defaultSeverity: "high",
     docs: "Shipguard resolves and analyzes HOF wrapper implementations to detect auth and rate-limit enforcement. When a wrapper cannot be resolved or its enforcement cannot be verified, this rule emits a single grouped finding. Add the wrapper name to hints.auth.functions or hints.rateLimit.wrappers to suppress.",
   },
+  {
+    id: "PUBLIC-INTENT-MISSING-REASON",
+    name: "Public Intent Missing Reason",
+    description: "Flags shipguard:public-intent directives that lack a required reason string.",
+    defaultSeverity: "med",
+    docs: "The shipguard:public-intent directive requires a reason for auditability. Without a reason, the directive is ignored and AUTH findings are NOT suppressed. Format: // shipguard:public-intent reason=\"description\"",
+  },
 ];
 
 export function runAllRules(index: NextIndex, config: ShipguardConfig): Finding[] {
@@ -71,6 +78,31 @@ export function runAllRules(index: NextIndex, config: ShipguardConfig): Finding[
   // WRAPPER-UNRECOGNIZED is always enabled unless explicitly configured out
   if (config.rules["WRAPPER-UNRECOGNIZED"] !== undefined ? config.rules["WRAPPER-UNRECOGNIZED"] : true) {
     findings.push(...wrapperUnrecognized.run(index, config));
+  }
+
+  // PUBLIC-INTENT-MISSING-REASON: flag malformed directives
+  for (const route of index.routes.all) {
+    if (route.malformedPublicIntent) {
+      findings.push({
+        ruleId: "PUBLIC-INTENT-MISSING-REASON",
+        severity: "med",
+        confidence: "high",
+        message: "shipguard:public-intent requires a reason for auditability",
+        file: route.file,
+        line: route.malformedPublicIntent.line,
+        snippet: route.malformedPublicIntent.raw,
+        evidence: [
+          "Directive found without valid reason=\"...\" — treated as not public-intent",
+          "AUTH findings are NOT suppressed and RL severity is NOT floored",
+        ],
+        confidenceRationale: "High: directive syntax is deterministic",
+        remediation: [
+          'Add a reason: // shipguard:public-intent reason="Public URL health checker"',
+          "Without a reason, the directive is ignored for all rule behavior",
+        ],
+        tags: ["misconfig", "public-intent"],
+      });
+    }
   }
 
   return findings;

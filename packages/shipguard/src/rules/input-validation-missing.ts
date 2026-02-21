@@ -3,10 +3,18 @@ import path from "node:path";
 import type { NextIndex, NextRoute, NextServerAction } from "../next/types.js";
 import type { Finding, ShipguardConfig } from "../engine/types.js";
 import type { Confidence, Severity } from "../next/types.js";
+import { detectOutboundFetcher } from "../util/outbound-fetch.js";
 
 export const RULE_ID = "INPUT-VALIDATION-MISSING";
 
 const SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, med: 2, low: 1 };
+
+const SEVERITY_UP: Record<string, Severity> = { low: "med", med: "high", high: "high", critical: "critical" };
+
+function bumpSeverityIfPublicIntent(severity: Severity, isPublicIntent: boolean): Severity {
+  if (!isPublicIntent) return severity;
+  return SEVERITY_UP[severity] ?? severity;
+}
 
 function severityFromConfidence(confidence: Confidence, maxSeverity: string): Severity {
   const max = maxSeverity as Severity;
@@ -26,22 +34,47 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
   for (const route of index.routes.mutationRoutes) {
     const result = checkEndpoint(route, index);
     if (result) {
+      let { confidence, confidenceRationale: rationale, evidence } = result;
+      let tags = ["input-validation", "data-integrity"];
+
+      // public-intent endpoints: bump severity (public + unvalidated = worse)
+      if (route.publicIntent) {
+        if (confidence === "med") confidence = "high";
+        rationale += " — endpoint declared intentionally public (higher exposure)";
+        evidence.push(`public-intent: "${route.publicIntent.reason}"`);
+        tags = ["input-validation", "data-integrity", "public-intent"];
+
+        // Combined SSRF note when outbound fetch detected
+        let src: string | undefined;
+        try { src = readFileSync(path.resolve(index.rootDir, route.file), "utf-8"); } catch {}
+        if (src) {
+          const fetcher = detectOutboundFetcher(src);
+          if (fetcher.isRisky) {
+            evidence.push("Public endpoint performs outbound fetch; missing validation increases SSRF risk");
+            tags.push("ssrf-surface");
+          }
+        }
+      }
+
       findings.push({
         ruleId: RULE_ID,
-        severity: severityFromConfidence(result.confidence, maxSeverity),
-        confidence: result.confidence,
+        severity: bumpSeverityIfPublicIntent(
+          severityFromConfidence(confidence, maxSeverity),
+          !!route.publicIntent,
+        ),
+        confidence,
         message: "Endpoint reads user input and performs writes without schema validation",
         file: route.file,
         line: result.line,
         snippet: result.snippet,
-        evidence: result.evidence,
-        confidenceRationale: result.confidenceRationale,
+        evidence,
+        confidenceRationale: rationale,
         remediation: [
           "Validate request body with a schema library before passing to DB/API calls",
           "Example: `const data = schema.parse(await request.json())`",
           "Recommended: zod, valibot, yup, or joi",
         ],
-        tags: ["input-validation", "data-integrity"],
+        tags,
       });
     }
   }

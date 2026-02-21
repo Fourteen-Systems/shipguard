@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectMutationSignals, classifyMutationRoutes } from "./routes.js";
+import { detectMutationSignals, classifyMutationRoutes, parsePublicIntent } from "./routes.js";
 import type { NextRoute } from "./types.js";
 
 describe("detectMutationSignals", () => {
@@ -152,5 +152,49 @@ describe("classifyMutationRoutes", () => {
   it("returns empty for no mutation routes", () => {
     const routes = [makeRoute(), makeRoute()];
     expect(classifyMutationRoutes(routes)).toHaveLength(0);
+  });
+});
+
+describe("parsePublicIntent", () => {
+  it("parses valid directive with double quotes", () => {
+    const src = `// shipguard:public-intent reason="Public URL checker"
+export async function GET(req: Request) {}`;
+    const result = parsePublicIntent(src);
+    expect(result).toEqual({ reason: "Public URL checker", line: 1 });
+  });
+
+  it("parses valid directive with single quotes", () => {
+    const src = `// some code
+// shipguard:public-intent reason='Webhook receiver; auth is Stripe signature'
+export async function POST(req: Request) {}`;
+    const result = parsePublicIntent(src);
+    expect(result).toEqual({ reason: "Webhook receiver; auth is Stripe signature", line: 2 });
+  });
+
+  it("returns malformed when reason is missing", () => {
+    const src = `// shipguard:public-intent
+export async function GET(req: Request) {}`;
+    const result = parsePublicIntent(src);
+    expect(result).not.toBeNull();
+    expect(result).toHaveProperty("raw");
+    expect(result).not.toHaveProperty("reason");
+  });
+
+  it("returns malformed when reason is empty", () => {
+    const src = `// shipguard:public-intent reason=""`;
+    const result = parsePublicIntent(src);
+    expect(result).toHaveProperty("raw");
+    expect(result).not.toHaveProperty("reason");
+  });
+
+  it("returns null when no directive present", () => {
+    const src = `export async function GET(req: Request) { return Response.json({}); }`;
+    expect(parsePublicIntent(src)).toBeNull();
+  });
+
+  it("handles whitespace after //", () => {
+    const src = `//   shipguard:public-intent reason="test"`;
+    const result = parsePublicIntent(src);
+    expect(result).toEqual({ reason: "test", line: 1 });
   });
 });

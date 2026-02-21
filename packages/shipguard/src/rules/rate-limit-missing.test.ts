@@ -383,3 +383,81 @@ describe("severity cap", () => {
     expect(findings[0].severity).toBe("high");
   });
 });
+
+/* ------------------------------------------------------------------ */
+/*  public-intent severity floor + SSRF escalation                     */
+/* ------------------------------------------------------------------ */
+
+describe("public-intent", () => {
+  const config = makeConfig();
+
+  it("floors RL severity to HIGH for GET-only public-intent route", () => {
+    const route = createRoute("app/api/status/route.ts", BASIC_HANDLER, {
+      protection: protectionSummary({ authSatisfied: false }),
+      publicIntent: { reason: "Public status page", line: 1 },
+    });
+    const findings = run(makeIndex([route]), config);
+    expect(findings).toHaveLength(1);
+    // Would be med for GET-only, but floored to high by public-intent
+    expect(findings[0].severity).toBe("high");
+    expect(findings[0].confidence).toBe("high");
+    expect(findings[0].tags).toContain("public-intent");
+    expect(findings[0].evidence).toContain('public-intent: "Public status page"');
+  });
+
+  it("escalates to CRITICAL when outbound fetch + user-influenced URL detected", () => {
+    const route = createRoute("app/api/proxy/route.ts", `
+export async function GET(request: Request) {
+  const url = new URL(request.url).searchParams.get("target");
+  const response = await fetch(url);
+  return Response.json(await response.json());
+}
+`, {
+      protection: protectionSummary({ authSatisfied: false }),
+      publicIntent: { reason: "Public URL checker", line: 1 },
+    });
+    const findings = run(makeIndex([route]), config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe("critical");
+    expect(findings[0].tags).toContain("ssrf-surface");
+    expect(findings[0].tags).toContain("outbound-fetch");
+  });
+
+  it("does NOT floor severity when publicIntent is missing (malformed directive)", () => {
+    const route = createRoute("app/api/data/route.ts", BASIC_HANDLER, {
+      protection: protectionSummary({ authSatisfied: false }),
+      malformedPublicIntent: { line: 1, raw: "// shipguard:public-intent" },
+    });
+    const findings = run(makeIndex([route]), config);
+    expect(findings).toHaveLength(1);
+    // Normal GET-only severity, no floor
+    expect(findings[0].severity).toBe("med");
+    expect(findings[0].tags).not.toContain("public-intent");
+  });
+
+  it("message says 'Intentionally public' for public-intent routes", () => {
+    const route = createRoute("app/api/check/route.ts", BASIC_HANDLER, {
+      protection: protectionSummary({ authSatisfied: false }),
+      publicIntent: { reason: "Intentional", line: 1 },
+    });
+    const findings = run(makeIndex([route]), config);
+    expect(findings[0].message).toContain("Intentionally public");
+  });
+
+  it("does NOT escalate to CRITICAL for fetch with hardcoded URL", () => {
+    const route = createRoute("app/api/external/route.ts", `
+export async function GET(request: Request) {
+  const response = await fetch("https://api.example.com/health");
+  return Response.json(await response.json());
+}
+`, {
+      protection: protectionSummary({ authSatisfied: false }),
+      publicIntent: { reason: "Health aggregator", line: 1 },
+    });
+    const findings = run(makeIndex([route]), config);
+    expect(findings).toHaveLength(1);
+    // Floored to high, but NOT critical (no user-influenced URL)
+    expect(findings[0].severity).toBe("high");
+    expect(findings[0].tags).not.toContain("ssrf-surface");
+  });
+});

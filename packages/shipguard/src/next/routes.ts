@@ -1,7 +1,7 @@
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import fg from "fast-glob";
-import type { NextRoute, MutationSignals } from "./types.js";
+import type { NextRoute, MutationSignals, PublicIntent, MalformedPublicIntent } from "./types.js";
 
 /**
  * Prisma write methods that indicate mutation.
@@ -77,6 +77,10 @@ export async function findRouteHandlers(
     const pathname = fileToPathname(file, appDir);
     const isApi = pathname.startsWith("/api/") || pathname === "/api";
 
+    const intent = parsePublicIntent(src);
+    const publicIntent = intent && "reason" in intent ? intent as PublicIntent : undefined;
+    const malformedPublicIntent = intent && !("reason" in intent) ? intent as MalformedPublicIntent : undefined;
+
     routes.push({
       kind: "route-handler",
       file,
@@ -85,6 +89,8 @@ export async function findRouteHandlers(
       isApi,
       isPublic: true, // conservative default; can be overridden by config
       signals,
+      ...(publicIntent && { publicIntent }),
+      ...(malformedPublicIntent && { malformedPublicIntent }),
     });
   }
 
@@ -157,6 +163,26 @@ function detectExportedMethods(src: string): string | undefined {
   if (/export\s+(?:async\s+)?function\s+PATCH/m.test(src)) methods.push("PATCH");
   if (/export\s+(?:async\s+)?function\s+DELETE/m.test(src)) methods.push("DELETE");
   return methods.length > 0 ? methods.join(",") : undefined;
+}
+
+/**
+ * Parse `// shipguard:public-intent reason="..."` directive from route source.
+ * Returns valid PublicIntent, malformed indicator, or null if not present.
+ */
+export function parsePublicIntent(
+  src: string,
+): PublicIntent | MalformedPublicIntent | null {
+  const lines = src.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].match(/\/\/\s*shipguard:public-intent\b(.*)/);
+    if (!match) continue;
+    const reasonMatch = match[1].match(/reason\s*=\s*["']([^"']+)["']/);
+    if (reasonMatch && reasonMatch[1].trim()) {
+      return { reason: reasonMatch[1].trim(), line: i + 1 };
+    }
+    return { line: i + 1, raw: lines[i].trim() };
+  }
+  return null;
 }
 
 function fileToPathname(file: string, appDir: string = "app"): string {

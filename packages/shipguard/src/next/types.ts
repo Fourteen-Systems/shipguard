@@ -20,6 +20,16 @@ export interface ProtectionSummary {
   rateLimit: ProtectionStatus;
 }
 
+export interface PublicIntent {
+  reason: string;
+  line: number;
+}
+
+export interface MalformedPublicIntent {
+  line: number;
+  raw: string;
+}
+
 export interface NextRoute {
   kind: "route-handler";
   file: string;
@@ -29,6 +39,8 @@ export interface NextRoute {
   isPublic: boolean;
   signals: MutationSignals;
   protection?: ProtectionSummary;
+  publicIntent?: PublicIntent;
+  malformedPublicIntent?: MalformedPublicIntent;
 }
 
 export interface NextServerAction {

@@ -430,8 +430,8 @@ export async function POST(req: Request) {
 /*  7. Callback path downgrade                                         */
 /* ------------------------------------------------------------------ */
 
-describe("callback path downgrade", () => {
-  it("downgrades /oidc/callback to med confidence (not suppressed)", () => {
+describe("callback path exemption", () => {
+  it("exempts /oidc/callback — public by protocol design", () => {
     const route = createRoute("app/oidc/callback/desktop/route.ts", `
 export const GET = async (req: Request) => {
   const code = new URL(req.url).searchParams.get("code");
@@ -442,14 +442,10 @@ export const GET = async (req: Request) => {
 `, { pathname: "/oidc/callback/desktop" });
 
     const findings = run(makeIndex([route]), config);
-    expect(findings).toHaveLength(1);
-    expect(findings[0].confidence).toBe("med");
-    expect(findings[0].tags).toContain("callback");
-    expect(findings[0].message).toContain("Callback");
-    expect(findings[0].remediation?.[0]).toContain("framework validation");
+    expect(findings).toHaveLength(0);
   });
 
-  it("downgrades /oauth/callback path to med confidence", () => {
+  it("exempts /oauth/callback — public by protocol design", () => {
     const route = createRoute("app/api/oauth/callback/route.ts", `
 export async function GET(req: Request) {
   const code = new URL(req.url).searchParams.get("code");
@@ -459,8 +455,7 @@ export async function GET(req: Request) {
 `, { pathname: "/api/oauth/callback" });
 
     const findings = run(makeIndex([route]), config);
-    expect(findings).toHaveLength(1);
-    expect(findings[0].confidence).toBe("med");
+    expect(findings).toHaveLength(0);
   });
 
   it("does NOT downgrade regular API routes", () => {
@@ -520,5 +515,37 @@ export async function POST(req: Request) {
     expect(findings[0].ruleId).toBe("AUTH-BOUNDARY-MISSING");
     expect(findings[0].severity).toBe("critical");
     expect(findings[0].confidence).toBe("high");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  9. public-intent suppression                                       */
+/* ------------------------------------------------------------------ */
+
+describe("public-intent auth suppression", () => {
+  it("suppresses AUTH finding when public-intent has valid reason", () => {
+    const route = createRoute("app/api/checker/route.ts", `
+// shipguard:public-intent reason="Public URL health checker"
+export async function POST(req: Request) {
+  const body = await req.json();
+  await prisma.check.create({ data: body });
+  return Response.json({ ok: true });
+}
+`, { publicIntent: { reason: "Public URL health checker", line: 1 } });
+    expect(run(makeIndex([route]), config)).toHaveLength(0);
+  });
+
+  it("does NOT suppress AUTH finding when publicIntent is absent (malformed)", () => {
+    const route = createRoute("app/api/checker/route.ts", `
+// shipguard:public-intent
+export async function POST(req: Request) {
+  const body = await req.json();
+  await prisma.check.create({ data: body });
+  return Response.json({ ok: true });
+}
+`, { malformedPublicIntent: { line: 1, raw: "// shipguard:public-intent" } });
+    const findings = run(makeIndex([route]), config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe("AUTH-BOUNDARY-MISSING");
   });
 });

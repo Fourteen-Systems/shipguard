@@ -27,6 +27,7 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
 
   // Check mutation route handlers
   for (const route of index.routes.mutationRoutes) {
+    if (route.publicIntent) continue; // Auth absence is intentional — structured suppression
     if (isAllowlisted(route.file, authAllowlist)) continue;
     const result = checkRoute(route, index, config);
     if (result) {

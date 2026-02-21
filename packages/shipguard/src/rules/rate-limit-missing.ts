@@ -4,6 +4,7 @@ import type { NextIndex, NextRoute } from "../next/types.js";
 import type { Finding, ShipguardConfig } from "../engine/types.js";
 import type { Confidence, Severity } from "../next/types.js";
 import { isAllowlisted } from "../util/paths.js";
+import { detectOutboundFetcher } from "../util/outbound-fetch.js";
 
 export const RULE_ID = "RATE-LIMIT-MISSING";
 
@@ -93,31 +94,67 @@ export function run(index: NextIndex, config: ShipguardConfig): Finding[] {
         result.evidence.push("public formData upload — storage abuse risk");
       }
 
+      // public-intent: severity floor at HIGH + SSRF escalation
+      let tags = ["rate-limit", "server"];
+      if (route.publicIntent) {
+        result.evidence.push(`public-intent: "${route.publicIntent.reason}"`);
+        tags = ["rate-limit", "server", "public-intent"];
+
+        // Floor severity at HIGH — public by design means RL is mandatory
+        if (SEVERITY_RANK[severity] < SEVERITY_RANK["high"]) {
+          severity = "high";
+          confidence = "high";
+          confidenceRationale = "High: developer declared endpoint intentionally public (shipguard:public-intent) — rate limiting is mandatory";
+        }
+
+        // SSRF escalation: public endpoint with outbound fetch = critical
+        const src = readSource(index.rootDir, route.file);
+        if (src) {
+          const fetcher = detectOutboundFetcher(src);
+          if (fetcher.isRisky) {
+            severity = "critical";
+            confidence = "high";
+            confidenceRationale = "Critical: public-intent endpoint performs outbound fetch with user-influenced URL — SSRF surface";
+            result.evidence.push(...fetcher.evidence);
+            tags = ["rate-limit", "server", "public-intent", "outbound-fetch", "ssrf-surface"];
+          }
+        }
+      }
+
       findings.push({
         ruleId: RULE_ID,
         severity: capSeverity(severity, maxSeverity),
         confidence,
         message: isAuthed
           ? `Authenticated API route has no recognized rate limiting`
-          : `Public API route has no recognized rate limiting`,
+          : route.publicIntent
+            ? `Intentionally public API route has no recognized rate limiting`
+            : `Public API route has no recognized rate limiting`,
         file: route.file,
         line: result.line,
         snippet: result.snippet,
         evidence: result.evidence,
         confidenceRationale,
-        remediation: isAuthed
+        remediation: route.publicIntent
           ? [
-              "Consider adding rate limiting as defense-in-depth",
-              "Authenticated routes are lower risk but can still be abused with stolen credentials",
-              "If rate limiting is at the edge (Cloudflare, Vercel WAF), add a waiver",
-            ]
-          : [
+              "Rate limiting is mandatory for endpoints declared as public-intent",
               "Add rate limiting middleware or wrapper to this route",
               "If using @upstash/ratelimit, wrap the handler with a rate limit check",
-              "If rate limiting is handled at the edge (Cloudflare, Vercel), add a waiver with reason",
-              "Add custom wrapper names to hints.rateLimit.wrappers in config",
-            ],
-        tags: ["rate-limit", "server"],
+              "If rate limiting is at the edge (Cloudflare, Vercel), add a waiver with reason",
+            ]
+          : isAuthed
+            ? [
+                "Consider adding rate limiting as defense-in-depth",
+                "Authenticated routes are lower risk but can still be abused with stolen credentials",
+                "If rate limiting is at the edge (Cloudflare, Vercel WAF), add a waiver",
+              ]
+            : [
+                "Add rate limiting middleware or wrapper to this route",
+                "If using @upstash/ratelimit, wrap the handler with a rate limit check",
+                "If rate limiting is handled at the edge (Cloudflare, Vercel), add a waiver with reason",
+                "Add custom wrapper names to hints.rateLimit.wrappers in config",
+              ],
+        tags,
       });
     }
   }

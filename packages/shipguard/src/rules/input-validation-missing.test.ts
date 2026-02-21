@@ -427,6 +427,55 @@ export async function POST() {
   });
 
   /* ------------------------------------------------------------------ */
+  /*  public-intent severity bump                                        */
+  /* ------------------------------------------------------------------ */
+
+  describe("public-intent severity bump", () => {
+    it("bumps severity when public-intent present (med → high)", () => {
+      const route = createRoute("app/api/ingest/route.ts", `
+export async function POST(request: Request) {
+  const body = await request.json();
+  await stripe.subscriptions.create({ items: body.items });
+}
+`, STRIPE_WRITE_SIGNALS);
+      (route as any).publicIntent = { reason: "Public ingest endpoint", line: 1 };
+      const findings = run(makeIndex([route]), makeConfig());
+      expect(findings).toHaveLength(1);
+      // Stripe-only would be med confidence → med severity, but public-intent bumps to high
+      expect(findings[0].severity).toBe("high");
+      expect(findings[0].tags).toContain("public-intent");
+      expect(findings[0].evidence).toContain('public-intent: "Public ingest endpoint"');
+    });
+
+    it("bumps confidence to high when public-intent present", () => {
+      const route = createRoute("app/api/ingest/route.ts", `
+export async function POST(request: Request) {
+  const body = await request.json();
+  await stripe.subscriptions.create({ items: body.items });
+}
+`, STRIPE_WRITE_SIGNALS);
+      (route as any).publicIntent = { reason: "Public endpoint", line: 1 };
+      const findings = run(makeIndex([route]), makeConfig());
+      expect(findings).toHaveLength(1);
+      // Stripe-only would be med confidence, but public-intent bumps to high
+      expect(findings[0].confidence).toBe("high");
+    });
+
+    it("does NOT bump when publicIntent is absent", () => {
+      const route = createRoute("app/api/ingest/route.ts", `
+export async function POST(request: Request) {
+  const body = await request.json();
+  await stripe.subscriptions.create({ items: body.items });
+}
+`, STRIPE_WRITE_SIGNALS);
+      const findings = run(makeIndex([route]), makeConfig());
+      expect(findings).toHaveLength(1);
+      expect(findings[0].severity).toBe("med");
+      expect(findings[0].tags).not.toContain("public-intent");
+    });
+  });
+
+  /* ------------------------------------------------------------------ */
   /*  Confidence levels                                                  */
   /* ------------------------------------------------------------------ */
 
