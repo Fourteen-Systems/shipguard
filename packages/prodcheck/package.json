@@ -1,6 +1,6 @@
 {
   "name": "@fourteensystems/prodcheck",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Static analysis guardrail for Next.js SaaS — flags unprotected routes, missing rate limiting, and SSRF surfaces",
   "type": "module",
   "bin": {
@@ -46,11 +46,11 @@
   "dependencies": {
     "commander": "^13.1.0",
     "fast-glob": "^3.3.3",
-    "picocolors": "^1.1.1"
+    "picocolors": "^1.1.1",
+    "typescript": "^5.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }
 }
