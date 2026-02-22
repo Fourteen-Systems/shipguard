@@ -19,8 +19,8 @@ export function formatPretty(result: ScanResult, diff?: BaselineDiff): string {
     lines.push(`  ${pc.dim("Score:")} ${scoreColor(String(score))} ${scoreColor(status)}`);
   } else {
     const parts: string[] = [];
-    if (summary.critical > 0) parts.push(pc.red(`${summary.critical} critical`));
-    if (summary.high > 0) parts.push(pc.yellow(`${summary.high} high`));
+    if (summary.critical > 0) parts.push(pc.bold(pc.red(`${summary.critical} critical`)));
+    if (summary.high > 0) parts.push(pc.bold(pc.yellow(`${summary.high} high`)));
     if (summary.med > 0) parts.push(`${summary.med} med`);
     if (summary.low > 0) parts.push(pc.dim(`${summary.low} low`));
     lines.push(`  ${pc.dim("Score:")} ${scoreColor(String(score))} ${scoreColor(status)}  ${pc.dim("·")}  ${parts.join(pc.dim(" · "))}`);
@@ -54,7 +54,7 @@ export function formatPretty(result: ScanResult, diff?: BaselineDiff): string {
 
   for (const [severity, items] of Object.entries(grouped)) {
     if (items.length === 0) continue;
-    const color = severity === "critical" ? pc.red : severity === "high" ? pc.yellow : pc.dim;
+    const color = severity === "critical" ? (s: string) => pc.bold(pc.red(s)) : severity === "high" ? (s: string) => pc.bold(pc.yellow(s)) : pc.dim;
     lines.push(`  ${color(severity.toUpperCase())} (${items.length})`);
 
     for (const f of items) {
