@@ -46,9 +46,9 @@ describe("findingKey", () => {
     expect(findingKey(f)).toBe("AUTH-BOUNDARY-MISSING::app/api/route.ts::13");
   });
 
-  it("uses 0 when line is undefined", () => {
+  it("uses 'none' when line is undefined", () => {
     const f = makeFinding({ ruleId: "RATE-LIMIT-MISSING", file: "app/api/route.ts" });
-    expect(findingKey(f)).toBe("RATE-LIMIT-MISSING::app/api/route.ts::0");
+    expect(findingKey(f)).toBe("RATE-LIMIT-MISSING::app/api/route.ts::none");
   });
 });
 

@@ -93,8 +93,8 @@ function findUnscopedPrismaCalls(
       const match = pattern.exec(line);
       if (!match) continue;
 
-      // Look at surrounding context (current line + next 10 lines) for the where clause
-      const context = lines.slice(i, Math.min(i + 15, lines.length)).join("\n");
+      // Look at surrounding context (current line + next lines) for the where clause
+      const context = lines.slice(i, Math.min(i + 50, lines.length)).join("\n");
 
       // Check if any org field appears in the where clause context
       const hasOrgField = orgFields.some((field) => {

@@ -29,6 +29,7 @@ export function loadConfigIfExists(rootDir: string): ProdcheckConfig | undefined
   }
 
   // TS/JS config requires a loader (tsx, jiti) — not yet supported.
+  console.error(`  Warning: Found ${path.basename(file)} but TS/JS configs are not yet supported. Use prodcheck.config.json instead.`);
   return undefined;
 }
 

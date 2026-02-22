@@ -4,7 +4,7 @@ import type { Baseline, Finding, ScanResult } from "./types.js";
 import { PRODCHECK_VERSION, INDEX_VERSION } from "./version.js";
 
 export function findingKey(f: Finding): string {
-  return `${f.ruleId}::${f.file}::${f.line ?? 0}`;
+  return `${f.ruleId}::${f.file}::${f.line ?? "none"}`;
 }
 
 export function writeBaseline(rootDir: string, result: ScanResult, filePath?: string): string {
