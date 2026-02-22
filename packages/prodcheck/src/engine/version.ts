@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ProdcheckConfig } from "./types.js";
 
-export const PRODCHECK_VERSION = "0.2.7";
+export const PRODCHECK_VERSION = "0.3.1";
 export const INDEX_VERSION = 1;
 
 export function hashConfig(config: ProdcheckConfig): string {

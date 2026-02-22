@@ -63,7 +63,7 @@ The action posts a PR comment with score, findings, and detected stack. Adds inl
 - **Auth-aware RL suppression**: routes with strongly enforced auth no longer produce rate-limit findings
 - **General rate limit detection**: recognizes any function with `rateLimit`/`ratelimit`/`rate_limit` in the name
 - **`prodcheck:public-intent`**: annotation for intentionally public routes — suppresses auth findings, floors RL severity at HIGH, escalates to CRITICAL for SSRF surfaces
-- **Improved auth detection**: catches `updateSession()` and similar patterns
+- **Improved auth detection**: broader pattern matching for auth enforcement
 
 ### PR Comment
 
