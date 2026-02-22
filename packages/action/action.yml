@@ -1,5 +1,5 @@
 name: "Prodcheck — Production Readiness Scanner for Next.js"
-description: "Static analysis guardrail for Next.js — flags unprotected mutations, missing auth boundaries, cross-tenant data leaks, and missing rate limits"
+description: "Flags unprotected mutations, missing auth, cross-tenant leaks, and missing rate limits in Next.js"
 branding:
   icon: "shield"
   color: "blue"
