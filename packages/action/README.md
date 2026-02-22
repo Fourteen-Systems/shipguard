@@ -2,7 +2,13 @@
 
 GitHub Action that scans your Next.js App Router codebase for unprotected routes, missing rate limiting, and SSRF surfaces. Comments on PRs with findings, resolves HOF wrapper implementations, verifies auth/rate-limit enforcement via TypeScript AST, and groups unverified wrappers into single findings.
 
+> **Requires a Prodcheck Pro license key.** Get one at [fourteensystems.com/prodcheck](https://fourteensystems.com/prodcheck).
+
 ## Usage
+
+1. Get a Pro license key at [fourteensystems.com/prodcheck](https://fourteensystems.com/prodcheck)
+2. Add it as a repository secret: **Settings → Secrets → `PRODCHECK_PRO_KEY`**
+3. Add the workflow:
 
 ```yaml
 name: Prodcheck
@@ -24,6 +30,7 @@ jobs:
       - uses: Fourteen-Systems/prodcheck-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRODCHECK_PRO_KEY: ${{ secrets.PRODCHECK_PRO_KEY }}
 ```
 
 The action posts a PR comment with score, findings, and detected stack. Adds inline annotations on flagged files and fails the check if thresholds are violated.
@@ -32,6 +39,7 @@ The action posts a PR comment with score, findings, and detected stack. Adds inl
 
 | Input | Default | Description |
 |-------|---------|-------------|
+| `license-key` | — | Pro license key (or set `PRODCHECK_PRO_KEY` env var) |
 | `fail-on` | `critical` | Minimum severity to fail the check |
 | `min-confidence` | `high` | Minimum confidence to include |
 | `min-score` | `70` | Minimum passing score (0-100) |
@@ -97,6 +105,7 @@ For monorepos (Turborepo, pnpm workspaces), point to the Next.js app directory:
 - uses: Fourteen-Systems/prodcheck-action@v1
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    PRODCHECK_PRO_KEY: ${{ secrets.PRODCHECK_PRO_KEY }}
   with:
     working-directory: apps/web
 ```
