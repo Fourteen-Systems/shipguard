@@ -1,8 +1,8 @@
-# Shipguard — Supported Patterns & Limitations
+# Prodcheck — Supported Patterns & Limitations
 
 ## AUTH-BOUNDARY-MISSING
 
-### What Shipguard detects (v1)
+### What Prodcheck detects (v1)
 
 Flags **route handlers** (`app/api/**/route.ts`) and **server actions** (files with `"use server"` or functions with inline `"use server"`) that:
 1. Perform mutations (Prisma writes, Stripe calls, request body parsing)
@@ -61,7 +61,7 @@ Server actions are discovered by scanning `.ts`/`.tsx` files under the app direc
 - Direct `Authorization` header reading
 
 **HOF wrapper introspection (automatic, no hints needed):**
-- Shipguard resolves wrapper imports (tsconfig paths, barrel re-exports, up to 5 hops)
+- Prodcheck resolves wrapper imports (tsconfig paths, barrel re-exports, up to 5 hops)
 - Parses wrapper implementation with TypeScript AST
 - Detects auth function calls (`getSession()`, `auth()`, etc.) in wrapper body
 - Verifies enforcement: checks that the call result is used in a conditional with throw/return/redirect
@@ -102,7 +102,7 @@ Server actions are discovered by scanning `.ts`/`.tsx` files under the app direc
 
 ## RATE-LIMIT-MISSING
 
-### What Shipguard detects (v1)
+### What Prodcheck detects (v1)
 
 Flags API route handlers under `app/api/` and tRPC mutation procedures that have no recognized rate limiting. Routes with strongly enforced auth (proven throw/return on failure) are suppressed — only public and weakly-authed routes are flagged.
 
@@ -145,9 +145,9 @@ Routes with weak or optional auth (call present but no proven enforcement) are t
 | Any | Login/signin path | **critical** | high |
 | No auth | File upload (formData/body+put) | **critical** | high |
 
-### `shipguard:public-intent` interaction
+### `prodcheck:public-intent` interaction
 
-Routes annotated with `// shipguard:public-intent reason="..."`:
+Routes annotated with `// prodcheck:public-intent reason="..."`:
 - RL severity is **floored at HIGH** (public by design = rate limiting mandatory)
 - If the route performs outbound fetch with user-influenced URLs, severity escalates to **CRITICAL** with `ssrf-surface` and `outbound-fetch` tags
 - Evidence includes the developer's stated reason
@@ -189,7 +189,7 @@ Routes annotated with `// shipguard:public-intent reason="..."`:
 
 ## WRAPPER-UNRECOGNIZED
 
-### What Shipguard detects (v1)
+### What Prodcheck detects (v1)
 
 Emits a single grouped finding per HOF wrapper that could not be fully verified for auth or rate-limit enforcement. This replaces what would otherwise be N identical per-route findings.
 
@@ -215,7 +215,7 @@ A wrapper triggers this rule when **any** of these conditions hold:
 
 ### Resolution cascade
 
-Shipguard resolves wrapper imports in this order:
+Prodcheck resolves wrapper imports in this order:
 1. **Same file**: wrapper function defined in the route file itself
 2. **Direct import**: resolve import path via tsconfig paths, `@/`/`~/` conventions, relative paths
 3. **Barrel re-export**: follow `export { X } from "./other"` and `export * from "./other"` up to 5 hops with cycle detection
@@ -239,7 +239,7 @@ Shipguard resolves wrapper imports in this order:
 
 ## TENANCY-SCOPE-MISSING
 
-### What Shipguard detects (v1)
+### What Prodcheck detects (v1)
 
 Flags Prisma calls on tenant-owned models that lack a tenant field in the where clause.
 
@@ -272,7 +272,7 @@ Flags Prisma calls on tenant-owned models that lack a tenant field in the where 
 
 ## INPUT-VALIDATION-MISSING
 
-### What Shipguard detects
+### What Prodcheck detects
 
 Flags mutation endpoints that read user input (`request.json()`, `request.formData()`, `req.body`) and perform database writes or payment operations without schema validation.
 
@@ -288,7 +288,7 @@ Flags mutation endpoints that read user input (`request.json()`, `request.formDa
 ### Severity
 
 - **med/med** for standard mutation routes
-- Bumped when `shipguard:public-intent` is present (public + unvalidated = higher exposure)
+- Bumped when `prodcheck:public-intent` is present (public + unvalidated = higher exposure)
 
 ### Known limitations
 
@@ -299,14 +299,14 @@ Flags mutation endpoints that read user input (`request.json()`, `request.formDa
 
 ## PUBLIC-INTENT-MISSING-REASON
 
-### What Shipguard detects
+### What Prodcheck detects
 
-Flags `shipguard:public-intent` directives that lack a required `reason` string.
+Flags `prodcheck:public-intent` directives that lack a required `reason` string.
 
 ### Directive format
 
 ```ts
-// shipguard:public-intent reason="Public URL health checker"
+// prodcheck:public-intent reason="Public URL health checker"
 ```
 
 - Single-line comment anywhere in the route module
@@ -330,7 +330,7 @@ When the directive is malformed (missing reason):
 
 ## Detected Ecosystem
 
-Shipguard auto-detects the following from `package.json`:
+Prodcheck auto-detects the following from `package.json`:
 
 | Category | Libraries |
 |----------|-----------|
@@ -339,11 +339,11 @@ Shipguard auto-detects the following from `package.json`:
 | **ORM** | Prisma, Drizzle |
 | **Framework** | tRPC |
 
-When a library is detected, Shipguard automatically adds the appropriate auth function names and rate limit wrapper names to hints — no manual configuration needed.
+When a library is detected, Prodcheck automatically adds the appropriate auth function names and rate limit wrapper names to hints — no manual configuration needed.
 
 ### Wrapper Introspection
 
-Beyond library detection, Shipguard performs **wrapper introspection** on every HOF wrapper found in route exports:
+Beyond library detection, Prodcheck performs **wrapper introspection** on every HOF wrapper found in route exports:
 
 | Step | What happens |
 |------|-------------|
@@ -354,8 +354,8 @@ Beyond library detection, Shipguard performs **wrapper introspection** on every 
 | **Apply** | Routes using verified wrappers are automatically cleared |
 | **Group** | Unverified wrappers produce a single WRAPPER-UNRECOGNIZED finding |
 
-This means most codebases need **zero configuration** — Shipguard reads your wrapper implementations and understands them.
+This means most codebases need **zero configuration** — Prodcheck reads your wrapper implementations and understands them.
 
 ### Monorepo Support
 
-Shipguard reads dependencies from both the app's `package.json` and the workspace root (detected via `pnpm-workspace.yaml`, `turbo.json`, or `package.json` workspaces). Middleware is checked at both levels. tsconfig `extends` chains are followed for path alias resolution.
+Prodcheck reads dependencies from both the app's `package.json` and the workspace root (detected via `pnpm-workspace.yaml`, `turbo.json`, or `package.json` workspaces). Middleware is checked at both levels. tsconfig `extends` chains are followed for path alias resolution.

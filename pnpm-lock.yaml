@@ -16,9 +16,9 @@ importers:
       '@actions/github':
         specifier: ^9.0.0
         version: 9.0.0
-      '@fourteensystems/shipguard':
+      '@fourteensystems/prodcheck':
         specifier: workspace:*
-        version: link:../shipguard
+        version: link:../prodcheck
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -30,7 +30,7 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
-  packages/shipguard:
+  packages/prodcheck:
     dependencies:
       commander:
         specifier: ^13.1.0

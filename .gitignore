@@ -6,7 +6,7 @@ coverage/
 *.log
 .env
 .env.*
-shipguard.baseline.json
+prodcheck.baseline.json
 
 # Dev/internal
 gauntlet/
@@ -14,6 +14,10 @@ fixtures/
 ROADMAP.md
 STRATEGY.md
 .claude/
+
+# License signing keys (NEVER commit)
+scripts/.license-private.pem
+scripts/.license-public.pem
 
 # OS
 Thumbs.db

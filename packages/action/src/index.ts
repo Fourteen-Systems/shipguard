@@ -12,16 +12,33 @@ import {
   parseConfidence,
   parseSeverity,
   parseIntOrThrow,
+  validateLicense,
+  resolveLicenseKey,
   type BaselineDiff,
   type ScanResult,
   type Finding,
   type Severity,
-} from "@fourteensystems/shipguard";
+} from "@fourteensystems/prodcheck";
 
-const COMMENT_MARKER = "<!-- shipguard-action -->";
+const COMMENT_MARKER = "<!-- prodcheck-action -->";
 
 async function run(): Promise<void> {
   try {
+    // Validate Pro license
+    const licenseKey = resolveLicenseKey(core.getInput("license-key") || undefined);
+    if (!licenseKey) {
+      core.setFailed(
+        "Prodcheck Pro license required. Set the license-key input or PRODCHECK_PRO_KEY env var. " +
+        "Get Pro → https://fourteensystems.com/prodcheck#pricing"
+      );
+      return;
+    }
+    const license = validateLicense(licenseKey);
+    if (!license.valid) {
+      core.setFailed(`Prodcheck Pro: ${license.reason}. Get Pro → https://fourteensystems.com/prodcheck#pricing`);
+      return;
+    }
+
     const workingDir = core.getInput("working-directory");
     const rootDir = workingDir || process.cwd();
     const result = await runScan({ rootDir });
@@ -80,7 +97,7 @@ async function run(): Promise<void> {
     });
 
     if (failures.length > 0) {
-      core.setFailed(`Shipguard: ${failures.join("; ")}`);
+      core.setFailed(`Prodcheck: ${failures.join("; ")}`);
     }
   } catch (error) {
     core.setFailed(error instanceof Error ? error.message : String(error));
@@ -162,7 +179,7 @@ function buildCommentBody(
   const lines: string[] = [COMMENT_MARKER];
   const status = scoreStatus(gatedScore);
   // Header — consistent shield branding, status in text
-  lines.push(`## \u{1F6E1}\uFE0F Shipguard \u2014 Score: ${gatedScore} ${status}`);
+  lines.push(`## \u{1F6E1}\uFE0F Prodcheck \u2014 Score: ${gatedScore} ${status}`);
   lines.push("");
 
   // Detected stack
@@ -245,7 +262,7 @@ function buildCommentBody(
 
   // Footer
   lines.push("---");
-  lines.push(`<sub>Shipguard ${result.shipguardVersion}</sub>`);
+  lines.push(`<sub>Prodcheck ${result.prodcheckVersion}</sub>`);
 
   return lines.join("\n");
 }
@@ -267,7 +284,7 @@ async function writeSummary(gatedScore: number, gatedFindings: Finding[], diff?:
   const counts = countBySeverity(gatedFindings);
 
   core.summary
-    .addHeading("Shipguard Report")
+    .addHeading("Prodcheck Report")
     .addRaw(`**Score: ${gatedScore} ${status}** | Findings: ${gatedFindings.length}`)
     .addEOL();
 

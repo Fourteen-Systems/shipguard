@@ -1,5 +1,5 @@
 {
-  "name": "@shipguard/action",
+  "name": "@prodcheck/action",
   "version": "1.2.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
   "dependencies": {
     "@actions/core": "^3.0.0",
     "@actions/github": "^9.0.0",
-    "@fourteensystems/shipguard": "workspace:*"
+    "@fourteensystems/prodcheck": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

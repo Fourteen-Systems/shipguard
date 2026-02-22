@@ -1,5 +1,5 @@
 {
-  "name": "shipguard-root",
+  "name": "prodcheck-root",
   "private": true,
   "packageManager": "pnpm@10.28.2",
   "pnpm": {
@@ -9,6 +9,6 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
-    "shipguard": "pnpm --filter shipguard exec shipguard"
+    "prodcheck": "pnpm --filter prodcheck exec prodcheck"
   }
 }

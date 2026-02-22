@@ -1,0 +1,134 @@
+import { writeFileSync } from "node:fs";
+import pc from "picocolors";
+import { runScan } from "../../engine/run.js";
+import { formatPretty, formatJson } from "../../engine/report.js";
+import { formatSarif } from "../../engine/sarif.js";
+import { loadBaseline, diffBaseline } from "../../engine/baseline.js";
+import { confidenceLevel, severityLevel, parseConfidence, parseSeverity, parseIntOrThrow } from "../../engine/score.js";
+import { loadConfigIfExists } from "../../engine/config.js";
+import { requireProLicense } from "../../engine/license.js";
+
+interface CiOptions {
+  failOn: string;
+  minConfidence: string;
+  minScore: string;
+  baseline?: string;
+  maxNewCritical: string;
+  maxNewHigh?: string;
+  format: string;
+  output?: string;
+  preview?: boolean;
+}
+
+export async function cmdCi(opts: CiOptions): Promise<void> {
+  try {
+    const rootDir = process.cwd();
+
+    // --preview runs a free, non-blocking scan (no enforcement, no exit code)
+    if (!opts.preview) {
+      const config = loadConfigIfExists(rootDir);
+      requireProLicense(config?.license?.key);
+    }
+
+    const result = await runScan({ rootDir });
+
+    const minConf = parseConfidence(opts.minConfidence ?? "high");
+    const failOnSeverity = parseSeverity(opts.failOn ?? "critical");
+    const minScore = parseIntOrThrow(opts.minScore ?? "70", "min-score");
+    const maxNewCritical = parseIntOrThrow(opts.maxNewCritical ?? "0", "max-new-critical");
+    const maxNewHigh = opts.maxNewHigh !== undefined ? parseIntOrThrow(opts.maxNewHigh, "max-new-high") : undefined;
+
+    // Filter findings by confidence for failure evaluation
+    const gatedFindings = result.findings.filter(
+      (f) => confidenceLevel(f.confidence) >= confidenceLevel(minConf),
+    );
+
+    // Check baseline
+    let diff;
+    if (opts.baseline) {
+      const baseline = loadBaseline(opts.baseline);
+      if (baseline) {
+        diff = diffBaseline(baseline, result);
+      }
+    }
+
+    // Output report
+    let output: string;
+    switch (opts.format) {
+      case "json":
+        output = formatJson(result);
+        break;
+      case "sarif":
+        output = formatSarif(result);
+        break;
+      default:
+        output = formatPretty(result, diff);
+    }
+
+    if (opts.output) {
+      writeFileSync(opts.output, output);
+    }
+    console.log(output);
+
+    // --preview: print summary and exit without enforcement
+    if (opts.preview) {
+      console.log(pc.dim("\n  Preview mode — no enforcement applied."));
+      console.log(pc.dim("  Upgrade to Pro for CI enforcement: https://fourteensystems.com/prodcheck#pricing\n"));
+      return;
+    }
+
+    // Evaluate gates
+    const failures: string[] = [];
+
+    // Score gate
+    if (result.score < minScore) {
+      failures.push(`Score ${result.score} is below minimum ${minScore}`);
+    }
+
+    // Severity gate: any findings at or above fail-on severity with sufficient confidence
+    const failingSeverities = gatedFindings.filter(
+      (f) => severityLevel(f.severity) >= severityLevel(failOnSeverity),
+    );
+    if (failingSeverities.length > 0) {
+      failures.push(`${failingSeverities.length} finding(s) at ${failOnSeverity} or above (${minConf}+ confidence)`);
+    }
+
+    // New findings gate (baseline)
+    if (diff) {
+      const newCritical = diff.newFindings.filter((f) => f.severity === "critical").length;
+      const newHigh = diff.newFindings.filter((f) => f.severity === "high").length;
+
+      if (newCritical > maxNewCritical) {
+        failures.push(`${newCritical} new critical finding(s) exceeds max ${maxNewCritical}`);
+      }
+      if (maxNewHigh !== undefined && newHigh > maxNewHigh) {
+        failures.push(`${newHigh} new high finding(s) exceeds max ${maxNewHigh}`);
+      }
+    }
+
+    if (failures.length > 0) {
+      console.log(pc.red("\n  CI FAILED:"));
+      for (const f of failures) {
+        console.log(pc.red(`    - ${f}`));
+      }
+
+      // Show specific rule IDs + files that triggered the failure
+      if (failingSeverities.length > 0) {
+        console.log("");
+        console.log(pc.dim("  Failing findings:"));
+        for (const f of failingSeverities) {
+          const loc = f.line ? `:${f.line}` : "";
+          console.log(`    ${pc.red(f.ruleId)} ${pc.dim(`(${f.severity})`)} ${pc.dim(f.file + loc)}`);
+        }
+      }
+
+      console.log("");
+      process.exit(1);
+    } else {
+      console.log(pc.green("\n  CI PASSED\n"));
+    }
+  } catch (err) {
+    console.error(pc.red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
+    process.exit(1);
+  }
+}

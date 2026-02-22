@@ -1,11 +1,11 @@
-# Shipguard Action
+# Prodcheck Action
 
 GitHub Action that scans your Next.js App Router codebase for unprotected routes, missing rate limiting, and SSRF surfaces. Comments on PRs with findings, resolves HOF wrapper implementations, verifies auth/rate-limit enforcement via TypeScript AST, and groups unverified wrappers into single findings.
 
 ## Usage
 
 ```yaml
-name: Shipguard
+name: Prodcheck
 on: [pull_request]
 
 permissions:
@@ -13,7 +13,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  shipguard:
+  prodcheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
-      - uses: Fourteen-Systems/shipguard-action@v1
+      - uses: Fourteen-Systems/prodcheck-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -46,7 +46,7 @@ The action posts a PR comment with score, findings, and detected stack. Adds inl
 
 | Output | Description |
 |--------|-------------|
-| `score` | Shipguard score (0-100) |
+| `score` | Prodcheck score (0-100) |
 | `findings` | Total number of findings |
 | `result` | `PASS`, `WARN`, or `FAIL` |
 
@@ -62,7 +62,7 @@ The action posts a PR comment with score, findings, and detected stack. Adds inl
 
 - **Auth-aware RL suppression**: routes with strongly enforced auth no longer produce rate-limit findings
 - **General rate limit detection**: recognizes any function with `rateLimit`/`ratelimit`/`rate_limit` in the name
-- **`shipguard:public-intent`**: annotation for intentionally public routes — suppresses auth findings, floors RL severity at HIGH, escalates to CRITICAL for SSRF surfaces
+- **`prodcheck:public-intent`**: annotation for intentionally public routes — suppresses auth findings, floors RL severity at HIGH, escalates to CRITICAL for SSRF surfaces
 - **Improved auth detection**: catches `updateSession()` and similar patterns
 
 ### PR Comment
@@ -94,20 +94,20 @@ Disable with `annotations: false`.
 For monorepos (Turborepo, pnpm workspaces), point to the Next.js app directory:
 
 ```yaml
-- uses: Fourteen-Systems/shipguard-action@v1
+- uses: Fourteen-Systems/prodcheck-action@v1
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   with:
     working-directory: apps/web
 ```
 
-Shipguard automatically reads dependencies from both the app and workspace root, resolves tsconfig path aliases across the monorepo, and follows wrapper imports through barrel re-exports.
+Prodcheck automatically reads dependencies from both the app and workspace root, resolves tsconfig path aliases across the monorepo, and follows wrapper imports through barrel re-exports.
 
 ## Configuration
 
-Most projects need no configuration. Shipguard auto-detects your stack, resolves wrapper implementations, and verifies auth/rate-limit enforcement automatically. Run `npx @fourteensystems/shipguard init` locally to generate a config if you need custom hints for edge cases.
+Most projects need no configuration. Prodcheck auto-detects your stack, resolves wrapper implementations, and verifies auth/rate-limit enforcement automatically. Run `npx @fourteensystems/prodcheck init` locally to generate a config if you need custom hints for edge cases.
 
-See [shipguard](https://github.com/Fourteen-Systems/shipguard) for full documentation.
+See [prodcheck](https://github.com/Fourteen-Systems/prodcheck) for full documentation.
 
 ## License
 
